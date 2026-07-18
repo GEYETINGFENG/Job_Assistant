@@ -1,5 +1,6 @@
 package com.keny.jobassistant.service;
 
+import com.keny.jobassistant.exception.BusinessException;
 import com.keny.jobassistant.model.domain.User;
 import jakarta.annotation.Resource;
 import org.junit.jupiter.api.Assertions;
@@ -14,60 +15,143 @@ import org.springframework.boot.test.context.SpringBootTest;
 import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest
 class UserServiceTest {
+
+
     @Resource
     private UserService userService;
 
-    @Test
-    public void testAddUser() {
-        User user = new User();//接下来要给对象设置值
-        user.setUsername("TestKeny");
-        user.setUserAccount("aaa");
-        user.setAvatarUrl("1111");
-        user.setGender(0);
-        user.setUserPassword("123456");
 
-        boolean result = userService.save(user);
-        System.out.println(user.getId());
-        assertTrue(result);
+    /**
+     * 测试正常注册
+     */
+    @Test
+    void userRegisterSuccess() {
+
+        String userAccount = "TestKeny001";
+        String userPassword = "12345678";
+        String checkPassword = "12345678";
+        long result = userService.userRegister(
+                userAccount,
+                userPassword,
+                checkPassword
+        );
+        Assertions.assertTrue(result > 0);
+    }
+
+
+
+    /**
+     * 测试账号为空
+     */
+    @Test
+    void userRegisterEmptyAccount(){
+        String userAccount = "";
+        String userPassword = "12345678";
+        String checkPassword = "12345678";
+
+        Assertions.assertThrows(
+                BusinessException.class,
+                () -> userService.userRegister(
+                        userAccount,
+                        userPassword,
+                        checkPassword
+                )
+        );
+    }
+
+
+
+
+    /**
+     * 测试密码长度不足
+     */
+    @Test
+    void userRegisterShortPassword(){
+        String userAccount = "TestKeny002";
+        String userPassword = "123";
+        String checkPassword = "123";
+
+        Assertions.assertThrows(
+                BusinessException.class,
+                () -> userService.userRegister(
+                        userAccount,
+                        userPassword,
+                        checkPassword
+                )
+        );
 
     }
 
+    /**
+     * 测试两次密码不一致
+     */
     @Test
-    void userRegister() {
-        //校验密码非空
-        String userAccount = "Yupi";
-        String userPassword = "";
-        String checkPassword = "123456";
-        long result = userService.userRegister(userAccount, userPassword, checkPassword);
-        Assertions.assertEquals(-1, result);
-        //校验账户不小于四位
-        userAccount = "yu";
-        result = userService.userRegister(userAccount, userPassword, checkPassword);
-        Assertions.assertEquals(-1, result);
-        //校验密码不小于八位
-        userAccount = "yupi";
-        userPassword = "123456";
-        result = userService.userRegister(userAccount, userPassword, checkPassword);
-        Assertions.assertEquals(-1, result);
-        //校验账户不能包含特殊字符
-        userAccount = "yu pi";
-        userPassword = "12345678";
-        result = userService.userRegister(userAccount, userPassword, checkPassword);
-        Assertions.assertEquals(-1, result);
-        //校验密码和校验密码相同
-        checkPassword = "123456789";
-        result = userService.userRegister(userAccount, userPassword, checkPassword);
-        Assertions.assertEquals(-1, result);
-        //账户名不能重复
-        userAccount = "dogYupi";//数据库里面的
-        userPassword = "12345678";
-        result = userService.userRegister(userAccount, userPassword, checkPassword);
-        Assertions.assertEquals(-1, result);
-        //真正执行成功
-        userAccount = "Yupi";
-        checkPassword = "12345678";
-        result = userService.userRegister(userAccount, userPassword, checkPassword);
-        Assertions.assertTrue(result>0);
+    void userRegisterPasswordNotSame(){
+        String userAccount = "TestKeny003";
+        String userPassword = "12345678";
+        String checkPassword = "87654321";
+        Assertions.assertThrows(
+                BusinessException.class,
+                () -> userService.userRegister(
+                        userAccount,
+                        userPassword,
+                        checkPassword
+                )
+        );
 
     }
+
+    /**
+     * 测试账号包含特殊字符
+     */
+    @Test
+    void userRegisterSpecialCharacter(){
+
+        String userAccount = "Test@123";
+        String userPassword = "12345678";
+        String checkPassword = "12345678";
+
+        long result = userService.userRegister(
+                userAccount,
+                userPassword,
+                checkPassword
+        );
+
+        Assertions.assertEquals(-1,result);
+
+    }
+
+
+
+    /**
+     * 测试重复注册
+     */
+    @Test
+    void userRegisterDuplicate(){
+
+
+        String userAccount = "TestDuplicate";
+        String password = "12345678";
+
+
+        long first =
+                userService.userRegister(
+                        userAccount,
+                        password,
+                        password
+                );
+
+
+        Assertions.assertTrue(first>0);
+        long second =
+                userService.userRegister(
+                        userAccount,
+                        password,
+                        password
+                );
+        Assertions.assertEquals(-1,second);
+
+    }
+
+
 }
