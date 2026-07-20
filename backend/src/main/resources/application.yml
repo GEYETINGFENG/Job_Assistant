@@ -1,15 +1,22 @@
 spring:
   application:
-    name: user-center
+    name: JobAssistant
   #DataSource Config
   datasource:
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/resume_project
-    username: root
+    driver-class-name: org.postgresql.Driver
+    url: jdbc:postgresql://localhost:5432/jobassistant
+    username: postgres
     password: 123456
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
   flyway:
     enabled: true
-    baseline-on-migrate: true
+    locations: classpath:db/migration
   #session 失效时间
   session:
     timeout: 86400
@@ -17,12 +24,3 @@ server:
   port: 8080
   servlet:
     context-path: /api
-
-mybatis-plus:
-  configuration:
-    map-underscore-to-camel-case: false
-  global-config:
-    db-config:
-      logic-delete-field: isDelete # 全局逻辑删除字段名
-      logic-delete-value: 1 # 逻辑已删除值。可选，默认值为 1
-      logic-not-delete-value: 0 # 逻辑未删除值。可选，默认值为 0

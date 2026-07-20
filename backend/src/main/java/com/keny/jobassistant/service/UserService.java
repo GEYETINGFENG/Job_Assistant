@@ -1,11 +1,12 @@
 package com.keny.jobassistant.service;
 
-import com.keny.jobassistant.model.domain.User;
-import com.baomidou.mybatisplus.extension.service.IService;
+import com.keny.jobassistant.model.entity.User;
 import jakarta.servlet.http.HttpServletRequest;
 
+import java.util.List;
 
-public interface UserService extends IService<User> {
+
+public interface UserService{
     /**
      * 用户注册
      * @param userAccount   用户账户
@@ -30,5 +31,7 @@ public interface UserService extends IService<User> {
      */
     User getSafetyUser(User originUser);
 
-    public int userLogout(HttpServletRequest request);
+    int userLogout(HttpServletRequest request);
+    List<User> searchUser(String username);
+    boolean deleteUser(Long id);
 }

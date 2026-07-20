@@ -1,13 +1,12 @@
 package com.keny.jobassistant.service.impl;
 import java.util.Date;
 
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+
 import com.keny.jobassistant.common.ErrorCode;
 import com.keny.jobassistant.exception.BusinessException;
-import com.keny.jobassistant.model.domain.User;
+import com.keny.jobassistant.model.entity.User;
+import com.keny.jobassistant.repository.UserRepository;
 import com.keny.jobassistant.service.UserService;
-import com.keny.jobassistant.mapper.UserMapper;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +14,8 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.DigestUtils;
 
+import java.util.List;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -27,10 +28,10 @@ import static com.keny.jobassistant.constant.UserConstant.USER_LOGIN_STATE;
 @Service
 @Slf4j
 //Slf4j的作用是显示日志
-public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService{
+public class UserServiceImpl implements UserService{
 
     @Resource
-    UserMapper userMapper;
+    private UserRepository userRepository;
     /**
      * 盐值，混淆密码
      */
@@ -57,29 +58,27 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         String validPattern = "\\pP|\\pS|\\s+";
         Matcher matcher = Pattern.compile(validPattern).matcher(userAccount);//如果账号里找到了特殊字符，就返回 -1
         if (matcher.find()){
-            return -1;
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "账号包含特殊字符");
         }
         //密码和校验密码相同
         if (!checkPassword.equals(userPassword)){
-            throw new BusinessException(ErrorCode.PARAMS_ERROR,"密码与校验密码不相同");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,"密码与校验密码不一致");
         }
         // 账户不能重复,要放在校验之后，如果校验都没通过，那么更不需要查询数据库
-        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("userAccount", userAccount);
-        Long count = userMapper.selectCount(queryWrapper);
-        if (count>0){
-            return -1;
+        Optional<User> existUser = userRepository.findByUserAccount(userAccount);
+        if(existUser.isPresent()){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "账号已存在");
         }
+        // 密码加密
         String encryptPassword = DigestUtils.md5DigestAsHex((SALT+userPassword).getBytes());
         //插入数据
         User user = new User();
         user.setUserAccount(userAccount);
         user.setUserPassword(encryptPassword);
-        boolean saveResult = this.save(user);
-        if (!saveResult){
-            return -1;
-        }
-        return user.getId();
+
+        // 保存
+        User saveUser = userRepository.save(user);
+        return saveUser.getId();
     }
 
     @Override
@@ -98,20 +97,19 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         String validPattern = "\\pP|\\pS|\\s+";
         Matcher matcher = Pattern.compile(validPattern).matcher(userAccount);//如果账号里找到了特殊字符，就返回 -1
         if (matcher.find()){
-            return null;
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "账号包含特殊字符");
         }
         //加密以及去数据库进行匹配
         String encryptPassword = DigestUtils.md5DigestAsHex((SALT+userPassword).getBytes());
         //查询用户是否存在
-        QueryWrapper<User> queryWrapper = new QueryWrapper<>();
-        queryWrapper.eq("userAccount", userAccount);
-        queryWrapper.eq("userPassword", encryptPassword);
-        User user = userMapper.selectOne(queryWrapper);
+        // 查询用户
+        Optional<User> optionalUser = userRepository.findByUserAccountAndUserPassword(userAccount, encryptPassword);
         //用户不存在
-        if (user==null){
+        if (optionalUser.isEmpty()){
             log.info("User login failed, userAccount cannot match userPassword");
             throw new BusinessException(ErrorCode.PARAMS_ERROR,"账号密码不匹配");
         }
+        User user = optionalUser.get();
         //用户信息脱敏
         User safetyUser = getSafetyUser(user);
         //记录用户的登录态
@@ -132,7 +130,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         safetyUser.setUserStatus(originUser.getUserStatus());
         safetyUser.setPhone(originUser.getPhone());
         safetyUser.setUserRole(originUser.getUserRole());
-        safetyUser.setCreateTime(new Date());
+        safetyUser.setCreateTime(originUser.getCreateTime());
         return safetyUser;
 
     }
@@ -144,6 +142,22 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return 1;
     }
 
+    @Override
+    public List<User> searchUser(String username){
+        if(StringUtils.isBlank(username)){
+            return userRepository.findAll();
+        }
+        return userRepository.findByUsernameContaining(username);
+
+    }
+    @Override
+    public boolean deleteUser(Long id){
+        if(!userRepository.existsById(id)){
+            return false;
+        }
+        userRepository.deleteById(id);
+        return true;
+    }
 }
 
 

@@ -1,7 +1,6 @@
 package com.keny.jobassistant.service;
 
 import com.keny.jobassistant.exception.BusinessException;
-import com.keny.jobassistant.model.domain.User;
 import jakarta.annotation.Resource;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -12,7 +11,7 @@ import org.springframework.boot.test.context.SpringBootTest;
  *
  * @author keny
  **/
-import static org.junit.jupiter.api.Assertions.*;
+
 @SpringBootTest
 class UserServiceTest {
 

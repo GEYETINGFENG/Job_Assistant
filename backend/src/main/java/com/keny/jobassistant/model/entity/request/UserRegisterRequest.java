@@ -1,4 +1,4 @@
-package com.keny.jobassistant.model.domain.request;
+package com.keny.jobassistant.model.entity.request;
 
 import lombok.Data;
 
