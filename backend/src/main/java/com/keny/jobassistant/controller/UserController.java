@@ -5,6 +5,7 @@ import com.keny.jobassistant.common.BaseResponse;
 import com.keny.jobassistant.common.ErrorCode;
 import com.keny.jobassistant.common.ResultUtils;
 import com.keny.jobassistant.exception.BusinessException;
+import com.keny.jobassistant.model.dto.UserDTO;
 import com.keny.jobassistant.model.entity.User;
 import com.keny.jobassistant.model.entity.request.UserLoginRequest;
 import com.keny.jobassistant.model.entity.request.UserRegisterRequest;
@@ -43,7 +44,7 @@ public class UserController {
     }
 
     @PostMapping("/login")
-    public BaseResponse<User> userLogin(@RequestBody UserLoginRequest userLoginRequest, HttpServletRequest request) {
+    public BaseResponse<UserDTO> userLogin(@RequestBody UserLoginRequest userLoginRequest, HttpServletRequest request) {
         if (userLoginRequest == null){
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -52,7 +53,7 @@ public class UserController {
         if (StringUtils.isAnyBlank(userAccount, userPassword)){
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        User user = userService.userLogin(userAccount, userPassword, request);
+        UserDTO user = userService.userLogin(userAccount, userPassword, request);
         return ResultUtils.success(user);
     }
 
@@ -67,16 +68,12 @@ public class UserController {
     }
 
     @GetMapping("/search")
-    public BaseResponse<List<User>> searchUser(String username, HttpServletRequest request){
+    public BaseResponse<List<UserDTO>> searchUser(String username, HttpServletRequest request){
         if (!isAdmin(request)){
             throw new BusinessException(ErrorCode.NO_AUTH);
         }
-        List<User> userList = userService.searchUser(username);
-
-        List<User> result = userList.stream()
-                        .map(user -> userService.getSafetyUser(user))
-                        .toList();
-        return ResultUtils.success(result);
+        List<UserDTO> userList = userService.searchUser(username);
+        return ResultUtils.success(userList);
     }
 
     @PostMapping("/delete")//用Post请求来处理删除操作支持请求体
@@ -93,13 +90,11 @@ public class UserController {
     private boolean isAdmin(HttpServletRequest request){
         //仅管理员可查询
         Object userObj = request.getSession().getAttribute(USER_LOGIN_STATE);
-        User user = (User) userObj;//强制转化成User类型
-        if (user == null || user.getUserRole() != ADMIN_ROLE){
+        UserDTO userDTO = (UserDTO) userObj;//强制转化成User类型
+        if (userDTO == null || userDTO.getUserRole() != ADMIN_ROLE){
             return false;
         }
         return true;
     }
-
-
-
+    
 }

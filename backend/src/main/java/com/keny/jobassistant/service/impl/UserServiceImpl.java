@@ -4,6 +4,7 @@ import java.util.Date;
 
 import com.keny.jobassistant.common.ErrorCode;
 import com.keny.jobassistant.exception.BusinessException;
+import com.keny.jobassistant.model.dto.UserDTO;
 import com.keny.jobassistant.model.entity.User;
 import com.keny.jobassistant.repository.UserRepository;
 import com.keny.jobassistant.service.UserService;
@@ -82,7 +83,7 @@ public class UserServiceImpl implements UserService{
     }
 
     @Override
-    public User userLogin(String userAccount, String userPassword, HttpServletRequest request) {
+    public UserDTO userLogin(String userAccount, String userPassword, HttpServletRequest request) {
         //1.校验是否非空,这里要调用一个库
         if(StringUtils.isAnyBlank(userAccount,userPassword)){
             throw new BusinessException(ErrorCode.PARAMS_ERROR,"参数为空");
@@ -111,28 +112,27 @@ public class UserServiceImpl implements UserService{
         }
         User user = optionalUser.get();
         //用户信息脱敏
-        User safetyUser = getSafetyUser(user);
+        UserDTO userDTO = getUserDTO(user);
         //记录用户的登录态
-        request.getSession().setAttribute(USER_LOGIN_STATE,safetyUser);
-        return safetyUser;
+        request.getSession().setAttribute(USER_LOGIN_STATE,userDTO);
+        return userDTO ;
 
     }
 
     @Override
-    public User getSafetyUser(User originUser){
-        User safetyUser = new User();
-        safetyUser.setId(originUser.getId());
-        safetyUser.setUsername(originUser.getUsername());
-        safetyUser.setUserAccount(originUser.getUserAccount());
-        safetyUser.setAvatarUrl(originUser.getAvatarUrl());
-        safetyUser.setGender(originUser.getGender());
-        safetyUser.setEmail(originUser.getEmail());
-        safetyUser.setUserStatus(originUser.getUserStatus());
-        safetyUser.setPhone(originUser.getPhone());
-        safetyUser.setUserRole(originUser.getUserRole());
-        safetyUser.setCreateTime(originUser.getCreateTime());
-        return safetyUser;
-
+    public UserDTO getUserDTO(User user){
+        UserDTO dto = new UserDTO();
+        dto.setId(user.getId());
+        dto.setUsername(user.getUsername());
+        dto.setUserAccount(user.getUserAccount());
+        dto.setAvatarUrl(user.getAvatarUrl());
+        dto.setGender(user.getGender());
+        dto.setEmail(user.getEmail());
+        dto.setPhone(user.getPhone());
+        dto.setUserStatus(user.getUserStatus());
+        dto.setUserRole(user.getUserRole());
+        dto.setCreateTime(user.getCreateTime());
+        return dto;
     }
 
     @Override
@@ -143,13 +143,17 @@ public class UserServiceImpl implements UserService{
     }
 
     @Override
-    public List<User> searchUser(String username){
+    public List<UserDTO> searchUser(String username){
+        List<User> users;
         if(StringUtils.isBlank(username)){
-            return userRepository.findAll();
+            users = userRepository.findAll();
+        }else{
+            users = userRepository.findByUsernameContaining(username);
         }
-        return userRepository.findByUsernameContaining(username);
+        return users.stream().map(this::getUserDTO).toList();
 
     }
+
     @Override
     public boolean deleteUser(Long id){
         if(!userRepository.existsById(id)){

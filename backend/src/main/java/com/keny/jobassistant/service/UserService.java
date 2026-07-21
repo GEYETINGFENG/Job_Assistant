@@ -1,5 +1,6 @@
 package com.keny.jobassistant.service;
 
+import com.keny.jobassistant.model.dto.UserDTO;
 import com.keny.jobassistant.model.entity.User;
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -22,16 +23,16 @@ public interface UserService{
      * @param userPassword 用户密码
      * @return 脱敏后的用户信息
      */
-    User userLogin(String userAccount, String userPassword, HttpServletRequest request);
+    UserDTO userLogin(String userAccount, String userPassword, HttpServletRequest request);
 
     /**
      * 用户脱敏
-     * @param originUser
+     * @param user
      * @return
      */
-    User getSafetyUser(User originUser);
+    UserDTO getUserDTO(User user);
 
     int userLogout(HttpServletRequest request);
-    List<User> searchUser(String username);
+    List<UserDTO> searchUser(String username);
     boolean deleteUser(Long id);
 }
