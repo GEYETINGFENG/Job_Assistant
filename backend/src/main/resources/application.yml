@@ -1,12 +1,20 @@
 spring:
   application:
     name: JobAssistant
-  #DataSource Config
+
+  # Import local secret configuration.
+  # The application can still start if the file does not exist,
+  # but properties without other values will be unavailable.
+  config:
+    import: classpath:application-secret.yml
+
+  # Data source configuration.
   datasource:
     driver-class-name: org.postgresql.Driver
     url: jdbc:postgresql://localhost:5432/jobassistant
     username: postgres
-    password: 123456
+
+  # JPA configuration.
   jpa:
     hibernate:
       ddl-auto: validate
@@ -14,13 +22,17 @@ spring:
     properties:
       hibernate:
         format_sql: true
+
+  # Flyway configuration.
   flyway:
     enabled: true
     locations: classpath:db/migration
-  #session 失效时间
-  session:
-    timeout: 86400
+
 server:
   port: 8080
   servlet:
     context-path: /api
+
+jwt:
+  issuer: job-assistant
+  expiration-seconds: 7200

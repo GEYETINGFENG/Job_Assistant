@@ -3,155 +3,116 @@ import com.keny.jobassistant.common.ErrorCode;
 import com.keny.jobassistant.exception.BusinessException;
 import com.keny.jobassistant.model.dto.UserDTO;
 import com.keny.jobassistant.model.entity.User;
+import com.keny.jobassistant.model.vo.UserLoginVO;
 import com.keny.jobassistant.repository.UserRepository;
+import com.keny.jobassistant.service.JwtTokenService;
 import com.keny.jobassistant.service.UserService;
 import jakarta.annotation.Resource;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
-import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.util.DigestUtils;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static com.keny.jobassistant.constant.UserConstant.USER_LOGIN_STATE;
-
 /**
-* @author Keny
-* @description 针对表【user(用户表)】的数据库操作Service实现
-*/
+ * 用户服务实现类。
+ */
 @Service
 @Slf4j
-//Slf4j的作用是显示日志
-public class UserServiceImpl implements UserService{
+public class UserServiceImpl implements UserService {
 
+    //正常用户状态
+    private static final int NORMAL_USER_STATUS = 0;
+    //未删除状态
+    private static final int NOT_DELETED = 0;
     @Resource
     private UserRepository userRepository;
-    /**
-     * 盐值，混淆密码
-     */
-    private static final String SALT = "keny";
-    private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
 
+    /**
+     * BCrypt 密码加密器，由 SecurityConfig 提供。
+     */
+    @Resource
+    private PasswordEncoder passwordEncoder;
+
+    /**
+     * JWT Token 生成服务。
+     */
+    @Resource
+    private JwtTokenService jwtTokenService;
+
+    /**
+     * 用户注册。
+     */
     @Override
     public long userRegister(String userAccount, String userPassword, String checkPassword) {
-        //1.校验是否非空,这里要调用一个库
-        if(StringUtils.isAnyBlank(userAccount,userPassword,checkPassword)){
-            //return -1;
-            throw new BusinessException(ErrorCode.PARAMS_ERROR,"Parameters cannot be blank");
-        }
-        if ((userAccount.length()<4)){
-            //return -1;
-            throw new BusinessException(ErrorCode.PARAMS_ERROR,"User account is too short");
-        }
-        if ((userPassword.length()<8 || checkPassword.length()<8)){
-            throw new BusinessException(ErrorCode.PARAMS_ERROR,"User password is too short");
-        }
-        //账户不能包含特殊字符，这个去网上搜索正则表达式
-        String validPattern = "\\pP|\\pS|\\s+";
-        Matcher matcher = Pattern.compile(validPattern).matcher(userAccount);//如果账号里找到了特殊字符，就返回 -1
-        if (matcher.find()){
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "User account contains invalid characters");
-        }
-        //密码和校验密码相同
-        if (!checkPassword.equals(userPassword)){
-            throw new BusinessException(ErrorCode.PARAMS_ERROR,"Passwords do not match");
-        }
-        // 账户不能重复,要放在校验之后，如果校验都没通过，那么更不需要查询数据库
+        // 校验注册参数。
+        validateRegisterParameters(userAccount, userPassword, checkPassword);
+
+        // 判断账号是否已经存在。
         Optional<User> existUser = userRepository.findByUserAccount(userAccount);
-        if(existUser.isPresent()){
+        if (existUser.isPresent()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "User account already exists");
         }
-        // 密码加密
-        String encryptPassword = DigestUtils.md5DigestAsHex((SALT+userPassword).getBytes());
-        //插入数据
         User user = new User();
         user.setUserAccount(userAccount);
-        user.setUserPassword(encryptPassword);
-
-        // 保存
-        User saveUser = userRepository.save(user);
-        return saveUser.getId();
+        // 使用 BCrypt 加密密码，BCrypt 会自动生成随机盐值。
+        user.setUserPassword(passwordEncoder.encode(userPassword));
+        User savedUser = userRepository.save(user);
+        return savedUser.getId();
     }
 
+    /**
+     * 用户登录。
+     *
+     * 账号密码验证成功后生成 JWT，
+     * 不再创建或保存 HttpSession。
+     */
     @Override
-    public UserDTO userLogin(String userAccount, String userPassword, HttpServletRequest request, HttpServletResponse response) {
-        //1.校验是否非空,这里要调用一个库
-        if(StringUtils.isAnyBlank(userAccount,userPassword)){
-            throw new BusinessException(ErrorCode.PARAMS_ERROR,"Parameters cannot be blank");
+    public UserLoginVO userLogin(String userAccount, String userPassword) {
+        // 校验登录参数。
+        validateLoginParameters(userAccount, userPassword);
+        // 先根据用户账号查询数据库。
+        User user = userRepository.findByUserAccount(userAccount).orElseThrow(() -> {
+            log.info("User login failed: account does not exist");
+            return new BusinessException(ErrorCode.PARAMS_ERROR, "User account or password is incorrect");
+        });
+        // 已被逻辑删除的用户不允许登录。
+        if (user.getIsDelete() != null && user.getIsDelete() != NOT_DELETED) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "User account or password is incorrect");
         }
-        if ((userAccount.length()<4)){
-            throw new BusinessException(ErrorCode.PARAMS_ERROR,"User account is too short");
+        // 使用 BCrypt 校验原始密码和数据库密码。
+        if (!passwordEncoder.matches(userPassword, user.getUserPassword())) {
+            log.info("User login failed: password does not match");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "User account or password is incorrect");
         }
-        if ((userPassword.length()<8)){
-            throw new BusinessException(ErrorCode.PARAMS_ERROR,"User password is too short");
+        // 被禁用的用户不允许登录。
+        if (user.getUserStatus() != null && user.getUserStatus() != NORMAL_USER_STATUS) {
+            throw new BusinessException(ErrorCode.NO_AUTH, "User account is disabled");
         }
-        //账户不能包含特殊字符，这个去网上搜索正则表达式
-        String validPattern = "\\pP|\\pS|\\s+";
-        Matcher matcher = Pattern.compile(validPattern).matcher(userAccount);//如果账号里找到了特殊字符，就返回 -1
-        if (matcher.find()){
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "User account contains invalid characters");
-        }
-        //加密以及去数据库进行匹配
-        String encryptPassword = DigestUtils.md5DigestAsHex((SALT+userPassword).getBytes());
-        //查询用户是否存在
-        // 查询用户
-        Optional<User> optionalUser = userRepository.findByUserAccountAndUserPassword(userAccount, encryptPassword);
-        //用户不存在
-        if (optionalUser.isEmpty()){
-            log.info("User login failed, userAccount cannot match userPassword");
-            throw new BusinessException(ErrorCode.PARAMS_ERROR,"User account or password is incorrect");
-        }
-        User user = optionalUser.get();
-        //用户信息脱敏
-        UserDTO userDTO = getUserDTO(user);
-        //记录用户的登录态
-        request.getSession().setAttribute(USER_LOGIN_STATE,userDTO);
 
-        /*
-         * hasRole("ADMIN") requires the authority ROLE_ADMIN.
-         * For example:
-         * userRole = ADMIN -> authority = ROLE_ADMIN
-         */
-        Integer userRole = userDTO.getUserRole(); //获取数据库中的角色
+        // 账号密码验证成功后，为当前用户生成 JWT。
+        String accessToken = jwtTokenService.generateAccessToken(user);
 
-        // Convert the database role value to a Spring Security authority
-        String authorityName; //将数据库角色转换为 Spring Security 权限
-        if (userRole != null && userRole == 1) {
-            authorityName = "ROLE_ADMIN";
-        } else {
-            authorityName = "ROLE_USER";
-        }
-        //SimpleGrantedAuthority 是 Spring Security 提供的权限实现类,将普通字符串ROLE_ADMIN包装成Spring Security可以识别的权限对象
-        SimpleGrantedAuthority authority = new SimpleGrantedAuthority(authorityName);
-        //创建 Authentication 认证对象,保存当前用户是谁，是否已经认证，拥有哪些权限
-        Authentication authentication = new UsernamePasswordAuthenticationToken(userDTO, null, List.of(authority));
-        //创建一个空的安全上下文对象，并将它赋值给变量 securityContext
-        SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
-        //将认证信息放进上下文
-        securityContext.setAuthentication(authentication);
-        //告诉 Spring Security，在当前请求中，使用这个 securityContext 作为当前用户的认证信息
-        SecurityContextHolder.setContext(securityContext);
-
-        // 将 SecurityContext 持久化到 Session
-        securityContextRepository.saveContext(securityContext, request, response);
-        return userDTO ;
+        // 返回 JWT 和脱敏后的用户信息。
+        return UserLoginVO.builder()
+                .accessToken(accessToken)
+                .tokenType("Bearer")
+                .expiresIn(jwtTokenService.getExpirationSeconds())
+                .user(getUserDTO(user))
+                .build();
     }
 
+    /**
+     * 将 User 实体转换成 UserDTO，避免返回密码等敏感信息。
+     */
     @Override
-    public UserDTO getUserDTO(User user){
+    public UserDTO getUserDTO(User user) {
         UserDTO dto = new UserDTO();
+
         dto.setId(user.getId());
         dto.setUsername(user.getUsername());
         dto.setUserAccount(user.getUserAccount());
@@ -162,48 +123,98 @@ public class UserServiceImpl implements UserService{
         dto.setUserStatus(user.getUserStatus());
         dto.setUserRole(user.getUserRole());
         dto.setCreateTime(user.getCreateTime());
+
         return dto;
     }
 
+    /**
+     * 查询用户。
+     */
     @Override
-    public int userLogout(HttpServletRequest request, HttpServletResponse response) {
-        //request,表示当前 HTTP 请求，主要用来获取 Session
-        //response 表示当前 HTTP 响应
-        //移除登录态
-        request.getSession().removeAttribute(USER_LOGIN_STATE);
-
-        SecurityContext emptyContext = SecurityContextHolder.createEmptyContext();
-        SecurityContextHolder.clearContext();
-        securityContextRepository.saveContext(emptyContext, request, response);
-        request.getSession().invalidate();//销毁整个 Session
-        return 1;
-    }
-
-    @Override
-    public List<UserDTO> searchUser(String username){
+    public List<UserDTO> searchUser(String username) {
         List<User> users;
-        if(StringUtils.isBlank(username)){
+
+        if (StringUtils.isBlank(username)) {
             users = userRepository.findAll();
-        }else{
+        } else {
             users = userRepository.findByUsernameContaining(username);
         }
-        return users.stream().map(this::getUserDTO).toList();
 
+        return users.stream()
+                .filter(user -> user.getIsDelete() == null || user.getIsDelete() == NOT_DELETED)
+                .map(this::getUserDTO)
+                .toList();
     }
 
+    /**
+     * 删除用户。
+     */
     @Override
-    public boolean deleteUser(Long id){
+    public boolean deleteUser(Long id) {
         if (id == null || id <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "Invalid user ID");
         }
-        if(!userRepository.existsById(id)){
+
+        if (!userRepository.existsById(id)) {
             return false;
         }
+
         userRepository.deleteById(id);
+
         return true;
     }
+
+    /**
+     * 校验注册参数。
+     */
+    private void validateRegisterParameters(String userAccount, String userPassword, String checkPassword) {
+        if (StringUtils.isAnyBlank(userAccount, userPassword, checkPassword)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Parameters cannot be blank");
+        }
+        validateAccount(userAccount);
+        validatePassword(userPassword);
+
+        if (!userPassword.equals(checkPassword)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Passwords do not match");
+        }
+    }
+
+    /**
+     * 校验登录参数。
+     */
+    private void validateLoginParameters(String userAccount, String userPassword) {
+        if (StringUtils.isAnyBlank(userAccount, userPassword)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Parameters cannot be blank");
+        }
+
+        validateAccount(userAccount);
+        validatePassword(userPassword);
+    }
+
+    /**
+     * 校验用户账号格式。
+     */
+    private void validateAccount(String userAccount) {
+        if (userAccount.length() < 4) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "User account is too short");
+        }
+
+        String invalidPattern = "\\pP|\\pS|\\s+";
+        Matcher matcher = Pattern.compile(invalidPattern).matcher(userAccount);
+
+        if (matcher.find()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "User account contains invalid characters");
+        }
+    }
+
+    /**
+     * 校验用户密码长度。
+     */
+    private void validatePassword(String userPassword) {
+        if (userPassword.length() < 8) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "User password is too short");
+        }
+    }
 }
-
-
 
 
