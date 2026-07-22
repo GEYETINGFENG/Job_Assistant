@@ -1,23 +1,17 @@
 package com.keny.jobassistant.controller;
-
-
 import com.keny.jobassistant.common.BaseResponse;
 import com.keny.jobassistant.common.ErrorCode;
 import com.keny.jobassistant.common.ResultUtils;
 import com.keny.jobassistant.exception.BusinessException;
 import com.keny.jobassistant.model.dto.UserDTO;
-import com.keny.jobassistant.model.entity.User;
 import com.keny.jobassistant.model.entity.request.UserLoginRequest;
 import com.keny.jobassistant.model.entity.request.UserRegisterRequest;
 import com.keny.jobassistant.service.UserService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.bind.annotation.*;
-import java.util.List;
-import static com.keny.jobassistant.constant.UserConstant.ADMIN_ROLE;
-import static com.keny.jobassistant.constant.UserConstant.USER_LOGIN_STATE;
-
 
 @RestController
 @RequestMapping("/user")
@@ -44,7 +38,7 @@ public class UserController {
     }
 
     @PostMapping("/login")
-    public BaseResponse<UserDTO> userLogin(@RequestBody UserLoginRequest userLoginRequest, HttpServletRequest request) {
+    public BaseResponse<UserDTO> userLogin(@RequestBody UserLoginRequest userLoginRequest, HttpServletRequest request, HttpServletResponse response) {
         if (userLoginRequest == null){
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -53,48 +47,17 @@ public class UserController {
         if (StringUtils.isAnyBlank(userAccount, userPassword)){
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        UserDTO user = userService.userLogin(userAccount, userPassword, request);
+        UserDTO user = userService.userLogin(userAccount, userPassword, request,response);
         return ResultUtils.success(user);
     }
 
     @PostMapping("/logout")
-    public BaseResponse<Integer> userLogout(HttpServletRequest request) {
+    public BaseResponse<Integer> userLogout(HttpServletRequest request,HttpServletResponse response) {
         if (request == null){
             return null;
         }
-        int result = userService.userLogout(request);
+        int result = userService.userLogout(request,response);
         return ResultUtils.success(result);
 
     }
-
-    @GetMapping("/search")
-    public BaseResponse<List<UserDTO>> searchUser(String username, HttpServletRequest request){
-        if (!isAdmin(request)){
-            throw new BusinessException(ErrorCode.NO_AUTH);
-        }
-        List<UserDTO> userList = userService.searchUser(username);
-        return ResultUtils.success(userList);
-    }
-
-    @PostMapping("/delete")//用Post请求来处理删除操作支持请求体
-    public BaseResponse<Boolean> deleteUser(@RequestBody long id, HttpServletRequest request){
-        if (!isAdmin(request)){
-            throw new BusinessException(ErrorCode.NO_AUTH);}
-        if (id<=0){
-            throw new BusinessException(ErrorCode.PARAMS_ERROR);
-        }
-        boolean result = userService.deleteUser(id);
-        return ResultUtils.success(result);
-
-    }
-    private boolean isAdmin(HttpServletRequest request){
-        //仅管理员可查询
-        Object userObj = request.getSession().getAttribute(USER_LOGIN_STATE);
-        UserDTO userDTO = (UserDTO) userObj;//强制转化成User类型
-        if (userDTO == null || userDTO.getUserRole() != ADMIN_ROLE){
-            return false;
-        }
-        return true;
-    }
-    
 }

@@ -1,7 +1,4 @@
 package com.keny.jobassistant.service.impl;
-import java.util.Date;
-
-
 import com.keny.jobassistant.common.ErrorCode;
 import com.keny.jobassistant.exception.BusinessException;
 import com.keny.jobassistant.model.dto.UserDTO;
@@ -10,8 +7,16 @@ import com.keny.jobassistant.repository.UserRepository;
 import com.keny.jobassistant.service.UserService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.util.DigestUtils;
 
@@ -37,38 +42,36 @@ public class UserServiceImpl implements UserService{
      * 盐值，混淆密码
      */
     private static final String SALT = "keny";
-    /**
-     * 用户登录态键
-     */
+    private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
 
     @Override
     public long userRegister(String userAccount, String userPassword, String checkPassword) {
         //1.校验是否非空,这里要调用一个库
         if(StringUtils.isAnyBlank(userAccount,userPassword,checkPassword)){
             //return -1;
-            throw new BusinessException(ErrorCode.PARAMS_ERROR,"参数为空");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,"Parameters cannot be blank");
         }
         if ((userAccount.length()<4)){
             //return -1;
-            throw new BusinessException(ErrorCode.PARAMS_ERROR,"用户账号过短");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,"User account is too short");
         }
         if ((userPassword.length()<8 || checkPassword.length()<8)){
-            throw new BusinessException(ErrorCode.PARAMS_ERROR,"用户密码过短");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,"User password is too short");
         }
         //账户不能包含特殊字符，这个去网上搜索正则表达式
         String validPattern = "\\pP|\\pS|\\s+";
         Matcher matcher = Pattern.compile(validPattern).matcher(userAccount);//如果账号里找到了特殊字符，就返回 -1
         if (matcher.find()){
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "账号包含特殊字符");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "User account contains invalid characters");
         }
         //密码和校验密码相同
         if (!checkPassword.equals(userPassword)){
-            throw new BusinessException(ErrorCode.PARAMS_ERROR,"密码与校验密码不一致");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,"Passwords do not match");
         }
         // 账户不能重复,要放在校验之后，如果校验都没通过，那么更不需要查询数据库
         Optional<User> existUser = userRepository.findByUserAccount(userAccount);
         if(existUser.isPresent()){
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "账号已存在");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "User account already exists");
         }
         // 密码加密
         String encryptPassword = DigestUtils.md5DigestAsHex((SALT+userPassword).getBytes());
@@ -83,22 +86,22 @@ public class UserServiceImpl implements UserService{
     }
 
     @Override
-    public UserDTO userLogin(String userAccount, String userPassword, HttpServletRequest request) {
+    public UserDTO userLogin(String userAccount, String userPassword, HttpServletRequest request, HttpServletResponse response) {
         //1.校验是否非空,这里要调用一个库
         if(StringUtils.isAnyBlank(userAccount,userPassword)){
-            throw new BusinessException(ErrorCode.PARAMS_ERROR,"参数为空");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,"Parameters cannot be blank");
         }
         if ((userAccount.length()<4)){
-            throw new BusinessException(ErrorCode.PARAMS_ERROR,"用户账号过短");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,"User account is too short");
         }
         if ((userPassword.length()<8)){
-            throw new BusinessException(ErrorCode.PARAMS_ERROR,"用户密码过短");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,"User password is too short");
         }
         //账户不能包含特殊字符，这个去网上搜索正则表达式
         String validPattern = "\\pP|\\pS|\\s+";
         Matcher matcher = Pattern.compile(validPattern).matcher(userAccount);//如果账号里找到了特殊字符，就返回 -1
         if (matcher.find()){
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "账号包含特殊字符");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "User account contains invalid characters");
         }
         //加密以及去数据库进行匹配
         String encryptPassword = DigestUtils.md5DigestAsHex((SALT+userPassword).getBytes());
@@ -108,15 +111,42 @@ public class UserServiceImpl implements UserService{
         //用户不存在
         if (optionalUser.isEmpty()){
             log.info("User login failed, userAccount cannot match userPassword");
-            throw new BusinessException(ErrorCode.PARAMS_ERROR,"账号密码不匹配");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,"User account or password is incorrect");
         }
         User user = optionalUser.get();
         //用户信息脱敏
         UserDTO userDTO = getUserDTO(user);
         //记录用户的登录态
         request.getSession().setAttribute(USER_LOGIN_STATE,userDTO);
-        return userDTO ;
 
+        /*
+         * hasRole("ADMIN") requires the authority ROLE_ADMIN.
+         * For example:
+         * userRole = ADMIN -> authority = ROLE_ADMIN
+         */
+        Integer userRole = userDTO.getUserRole(); //获取数据库中的角色
+
+        // Convert the database role value to a Spring Security authority
+        String authorityName; //将数据库角色转换为 Spring Security 权限
+        if (userRole != null && userRole == 1) {
+            authorityName = "ROLE_ADMIN";
+        } else {
+            authorityName = "ROLE_USER";
+        }
+        //SimpleGrantedAuthority 是 Spring Security 提供的权限实现类,将普通字符串ROLE_ADMIN包装成Spring Security可以识别的权限对象
+        SimpleGrantedAuthority authority = new SimpleGrantedAuthority(authorityName);
+        //创建 Authentication 认证对象,保存当前用户是谁，是否已经认证，拥有哪些权限
+        Authentication authentication = new UsernamePasswordAuthenticationToken(userDTO, null, List.of(authority));
+        //创建一个空的安全上下文对象，并将它赋值给变量 securityContext
+        SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
+        //将认证信息放进上下文
+        securityContext.setAuthentication(authentication);
+        //告诉 Spring Security，在当前请求中，使用这个 securityContext 作为当前用户的认证信息
+        SecurityContextHolder.setContext(securityContext);
+
+        // 将 SecurityContext 持久化到 Session
+        securityContextRepository.saveContext(securityContext, request, response);
+        return userDTO ;
     }
 
     @Override
@@ -136,9 +166,16 @@ public class UserServiceImpl implements UserService{
     }
 
     @Override
-    public int userLogout(HttpServletRequest request) {
+    public int userLogout(HttpServletRequest request, HttpServletResponse response) {
+        //request,表示当前 HTTP 请求，主要用来获取 Session
+        //response 表示当前 HTTP 响应
         //移除登录态
         request.getSession().removeAttribute(USER_LOGIN_STATE);
+
+        SecurityContext emptyContext = SecurityContextHolder.createEmptyContext();
+        SecurityContextHolder.clearContext();
+        securityContextRepository.saveContext(emptyContext, request, response);
+        request.getSession().invalidate();//销毁整个 Session
         return 1;
     }
 
@@ -156,6 +193,9 @@ public class UserServiceImpl implements UserService{
 
     @Override
     public boolean deleteUser(Long id){
+        if (id == null || id <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Invalid user ID");
+        }
         if(!userRepository.existsById(id)){
             return false;
         }

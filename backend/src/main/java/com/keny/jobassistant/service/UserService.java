@@ -3,6 +3,7 @@ package com.keny.jobassistant.service;
 import com.keny.jobassistant.model.dto.UserDTO;
 import com.keny.jobassistant.model.entity.User;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 import java.util.List;
 
@@ -23,7 +24,7 @@ public interface UserService{
      * @param userPassword 用户密码
      * @return 脱敏后的用户信息
      */
-    UserDTO userLogin(String userAccount, String userPassword, HttpServletRequest request);
+    UserDTO userLogin(String userAccount, String userPassword, HttpServletRequest request, HttpServletResponse response);
 
     /**
      * 用户脱敏
@@ -32,7 +33,7 @@ public interface UserService{
      */
     UserDTO getUserDTO(User user);
 
-    int userLogout(HttpServletRequest request);
+    int userLogout(HttpServletRequest request,HttpServletResponse response);
     List<UserDTO> searchUser(String username);
     boolean deleteUser(Long id);
 }
