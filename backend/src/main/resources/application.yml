@@ -34,5 +34,8 @@ server:
     context-path: /api
 
 jwt:
-  issuer: job-assistant
+  issuer: job-assistant #JWT 的签发者
   expiration-seconds: 7200
+app:
+  cors:
+    allowed-origin: http://localhost:5173

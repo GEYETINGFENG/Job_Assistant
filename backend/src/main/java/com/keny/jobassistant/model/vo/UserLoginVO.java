@@ -1,5 +1,4 @@
 package com.keny.jobassistant.model.vo;
-
 import com.keny.jobassistant.model.dto.UserDTO;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -11,6 +10,7 @@ import lombok.NoArgsConstructor;
  * 同时返回 JWT、有效时间和用户信息。
  */
 @Data
+//链式创建对象
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
