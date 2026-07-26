@@ -1,0 +1,39 @@
+spring:
+  application:
+    name: JobAssistant
+
+  # Data source configuration.
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: jdbc:postgresql://localhost:5432/jobassistant
+    username: postgres
+    # 从环境变量读取数据库密码
+    password: ${DATABASE_PASSWORD}
+
+  # JPA configuration.
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  # Flyway configuration.
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+jwt:
+  issuer: job-assistant #JWT 的签发者
+  expiration-seconds: 7200
+  # 从环境变量读取 JWT 签名密钥
+  secret: ${JWT_SECRET}
+app:
+  cors:
+    allowed-origin: http://localhost:5173
