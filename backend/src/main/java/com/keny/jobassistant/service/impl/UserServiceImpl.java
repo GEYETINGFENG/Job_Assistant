@@ -52,7 +52,7 @@ public class UserServiceImpl implements UserService {
         // 判断账号是否已经存在。用户删除后，原账号永久不可重新注册。
         boolean accountExists = userRepository.existsByUserAccount(userAccount);
         if (accountExists) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "User account already exists");
+            throw new BusinessException(ErrorCode.ACCOUNT_CONFLICT);
         }
         User user = new User();
         user.setUserAccount(userAccount);
@@ -75,12 +75,12 @@ public class UserServiceImpl implements UserService {
         // 先根据用户账号查询数据库。
         User user = userRepository.findByUserAccountAndIsDelete(userAccount, User.NOT_DELETED).orElseThrow(() -> {
             log.info("User login failed: account does not exist");
-            return new BusinessException(ErrorCode.PARAMS_ERROR, "User account or password is incorrect");
+            return new BusinessException(ErrorCode.INVALID_CREDENTIALS);
         });
         // 使用 BCrypt 校验原始密码和数据库密码。
         if (!passwordEncoder.matches(userPassword, user.getUserPassword())) {
             log.info("User login failed: password does not match");
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "User account or password is incorrect");
+            throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
         }
         // 被禁用的用户不允许登录。
         if (user.getUserStatus() != null && user.getUserStatus() != NORMAL_USER_STATUS) {
@@ -148,7 +148,11 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "Invalid user ID");
         }
 
-        return userRepository.softDeleteById(id) > 0;
+        int affectedRows = userRepository.softDeleteById(id);
+        if (affectedRows == 0) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "User does not exist");
+        }
+        return true;
     }
 
     /**

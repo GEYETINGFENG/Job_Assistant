@@ -1,6 +1,7 @@
 package com.keny.jobassistant.service;
 
 import com.keny.jobassistant.model.entity.User;
+import lombok.Getter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -34,9 +35,11 @@ public class JwtTokenService {
      */
     private final String issuer;
 
+    //获取 JWT 有效时间
     /**
      * JWT 有效时间，单位为秒。
      */
+    @Getter
     private final long expirationSeconds;
 
     public JwtTokenService(JwtEncoder jwtEncoder,
@@ -84,8 +87,4 @@ public class JwtTokenService {
         return jwtEncoder.encode(parameters).getTokenValue();
     }
 
-    //获取 JWT 有效时间
-    public long getExpirationSeconds() {
-        return expirationSeconds;
-    }
 }
