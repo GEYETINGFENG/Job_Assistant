@@ -12,9 +12,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-
+import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
-import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -27,8 +26,6 @@ public class UserServiceImpl implements UserService {
 
     //正常用户状态
     private static final int NORMAL_USER_STATUS = 0;
-    //未删除状态
-    private static final int NOT_DELETED = 0;
     @Resource
     private UserRepository userRepository;
 
@@ -52,9 +49,9 @@ public class UserServiceImpl implements UserService {
         // 校验注册参数。
         validateRegisterParameters(userAccount, userPassword, checkPassword);
 
-        // 判断账号是否已经存在。
-        Optional<User> existUser = userRepository.findByUserAccount(userAccount);
-        if (existUser.isPresent()) {
+        // 判断账号是否已经存在。用户删除后，原账号永久不可重新注册。
+        boolean accountExists = userRepository.existsByUserAccount(userAccount);
+        if (accountExists) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "User account already exists");
         }
         User user = new User();
@@ -76,14 +73,10 @@ public class UserServiceImpl implements UserService {
         // 校验登录参数。
         validateLoginParameters(userAccount, userPassword);
         // 先根据用户账号查询数据库。
-        User user = userRepository.findByUserAccount(userAccount).orElseThrow(() -> {
+        User user = userRepository.findByUserAccountAndIsDelete(userAccount, User.NOT_DELETED).orElseThrow(() -> {
             log.info("User login failed: account does not exist");
             return new BusinessException(ErrorCode.PARAMS_ERROR, "User account or password is incorrect");
         });
-        // 已被逻辑删除的用户不允许登录。
-        if (user.getIsDelete() != null && user.getIsDelete() != NOT_DELETED) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "User account or password is incorrect");
-        }
         // 使用 BCrypt 校验原始密码和数据库密码。
         if (!passwordEncoder.matches(userPassword, user.getUserPassword())) {
             log.info("User login failed: password does not match");
@@ -135,33 +128,27 @@ public class UserServiceImpl implements UserService {
         List<User> users;
 
         if (StringUtils.isBlank(username)) {
-            users = userRepository.findAll();
+            users = userRepository.findAllByIsDelete(User.NOT_DELETED);
         } else {
-            users = userRepository.findByUsernameContaining(username);
+            users = userRepository.findByUsernameContainingAndIsDelete(username, User.NOT_DELETED);
         }
 
         return users.stream()
-                .filter(user -> user.getIsDelete() == null || user.getIsDelete() == NOT_DELETED)
                 .map(this::getUserDTO)
                 .toList();
     }
 
     /**
-     * 删除用户。
+     * 逻辑删除用户。
      */
     @Override
+    @Transactional
     public boolean deleteUser(Long id) {
         if (id == null || id <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "Invalid user ID");
         }
 
-        if (!userRepository.existsById(id)) {
-            return false;
-        }
-
-        userRepository.deleteById(id);
-
-        return true;
+        return userRepository.softDeleteById(id) > 0;
     }
 
     /**

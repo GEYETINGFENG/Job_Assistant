@@ -1,9 +1,6 @@
 package com.keny.jobassistant.model.entity;
-
-
 import jakarta.persistence.*;
 import lombok.Data;
-
 import java.time.LocalDateTime;
 
 /**
@@ -13,8 +10,8 @@ import java.time.LocalDateTime;
 @Table(name = "users")
 @Data
 public class User {
-
-
+    public static final int NOT_DELETED = 0;
+    public static final int DELETED = 1;
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -29,11 +26,8 @@ public class User {
     /**
      * Login account
      */
-    @Column(name = "user_account",
-            unique = true,
-            nullable = false)
+    @Column(name = "user_account", unique = true, nullable = false)
     private String userAccount;
-
 
     /**
      * Avatar URL
@@ -41,32 +35,26 @@ public class User {
     @Column(name = "avatar_url")
     private String avatarUrl;
 
-
     /**
      * Gender
      */
     private Integer gender;
 
-
     /**
      * Encrypted password
      */
-    @Column(name = "user_password",
-            nullable = false)
+    @Column(name = "user_password", nullable = false)
     private String userPassword;
-
 
     /**
      * Email
      */
     private String email;
 
-
     /**
      * Phone
      */
     private String phone;
-
 
     /**
      * User status
