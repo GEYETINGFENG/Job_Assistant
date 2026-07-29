@@ -1,0 +1,36 @@
+spring:
+  datasource:
+    # 覆盖正式配置中的 ${DATABASE_PASSWORD}，
+    password: test
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+server:
+  servlet:
+    # MockMvc 测试中直接使用 /admin/users，不添加 /api 前缀。
+    context-path: ""
+
+jwt:
+  # 测试专用 JWT 签发者。
+  issuer: job-assistant-test
+
+  # Access Token 测试有效期为 15 分钟。
+  expiration-seconds: 900
+
+  # Refresh Token 测试有效期为 30 天。
+  refresh-expiration-seconds: 2592000
+
+  # 测试专用密钥
+  # 只能用于测试，不能用于生产环境。
+  secret: AvObxSiZB93LqeBke5oVxVMgwyu40fga1LnnciYMUuw=
+
+app:
+  cors:
+    allowed-origin: http://localhost:5173
