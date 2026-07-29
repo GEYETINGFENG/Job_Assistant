@@ -17,19 +17,28 @@ import lombok.NoArgsConstructor;
 public class UserLoginVO {
 
     /**
-     * JWT Access Token。
+     * 短期 JWT Access Token。
      */
     private String accessToken;
 
+    /**
+     * 长期 Refresh Token，只用于调用刷新接口，不能直接访问普通业务接口。
+     */
+    private String refreshToken;
     /**
      * Token 类型，固定为 Bearer。
      */
     private String tokenType;
 
     /**
-     * Token 有效时间，单位为秒。
+     *  Access Token 有效时间，单位为秒
      */
     private Long expiresIn;
+
+    /**
+     * Refresh Token 有效时间，单位为秒。
+     */
+    private Long refreshExpiresIn;
 
     /**
      * 当前登录用户的信息。

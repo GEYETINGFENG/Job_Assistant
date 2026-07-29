@@ -6,6 +6,7 @@ import com.keny.jobassistant.model.entity.User;
 import com.keny.jobassistant.model.vo.UserLoginVO;
 import com.keny.jobassistant.repository.UserRepository;
 import com.keny.jobassistant.service.JwtTokenService;
+import com.keny.jobassistant.service.RefreshTokenService;
 import com.keny.jobassistant.service.UserService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -36,10 +37,16 @@ public class UserServiceImpl implements UserService {
     private PasswordEncoder passwordEncoder;
 
     /**
-     * JWT Token 生成服务。
+     * JWT Access Token 生成服务。
      */
     @Resource
     private JwtTokenService jwtTokenService;
+
+    /**
+     * Refresh Token 服务。
+     */
+    @Resource
+    private RefreshTokenService refreshTokenService;
 
     /**
      * 用户注册。
@@ -64,11 +71,15 @@ public class UserServiceImpl implements UserService {
 
     /**
      * 用户登录。
-     *
-     * 账号密码验证成功后生成 JWT，
-     * 不再创建或保存 HttpSession。
+     *登录成功后：
+     * 1. 生成短期 Access Token
+     * 2. 生成长期 Refresh Token
+     * 3. 将 Refresh Token 哈希保存到数据库
+     * 4. 返回两个 Token 和用户信息
+     * 使用事务可以保证 Refresh Token 保存失败时，整个登录操作不会返回不完整的结果。
      */
     @Override
+    @Transactional
     public UserLoginVO userLogin(String userAccount, String userPassword) {
         // 校验登录参数。
         validateLoginParameters(userAccount, userPassword);
@@ -87,14 +98,18 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException(ErrorCode.NO_AUTH, "User account is disabled");
         }
 
-        // 账号密码验证成功后，为当前用户生成 JWT。
+        // 生成短期 JWT Access Token
         String accessToken = jwtTokenService.generateAccessToken(user);
+        // 生成长期 Refresh Token，并将哈希保存到数据库。
+        String refreshToken = refreshTokenService.createRefreshToken(user);
 
         // 返回 JWT 和脱敏后的用户信息。
         return UserLoginVO.builder()
                 .accessToken(accessToken)
+                .refreshToken(refreshToken)
                 .tokenType("Bearer")
                 .expiresIn(jwtTokenService.getExpirationSeconds())
+                .refreshExpiresIn(refreshTokenService.getRefreshExpirationSeconds())
                 .user(getUserDTO(user))
                 .build();
     }
@@ -152,6 +167,8 @@ public class UserServiceImpl implements UserService {
         if (affectedRows == 0) {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "User does not exist");
         }
+        // 撤销该用户全部有效的 Refresh Token。
+        refreshTokenService.revokeAllByUserId(id);
         return true;
     }
 

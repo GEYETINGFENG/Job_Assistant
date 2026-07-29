@@ -90,7 +90,7 @@ public class SecurityConfig {
                         // 放行浏览器的 CORS 预检请求。
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         // 注册和登录接口公开访问。
-                        .requestMatchers(HttpMethod.POST, "/user/register", "/user/login").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/user/register", "/user/login","/user/refresh", "/user/logout").permitAll()
                         // Swagger 和错误接口公开访问。
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**", "/error").permitAll()
                         // 管理员接口仅 ADMIN 可以访问。
@@ -170,7 +170,7 @@ public class SecurityConfig {
     }
 
     /**
-     * 创建 JWT 编码器,生成签名后的JWT
+     * 创建 JWT 编码器,生成签名后的Access Token
      */
     @Bean
     public JwtEncoder jwtEncoder(SecretKey jwtSecretKey) {
