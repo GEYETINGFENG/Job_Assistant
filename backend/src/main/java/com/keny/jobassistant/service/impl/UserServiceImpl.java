@@ -8,6 +8,7 @@ import com.keny.jobassistant.repository.UserRepository;
 import com.keny.jobassistant.service.JwtTokenService;
 import com.keny.jobassistant.service.RefreshTokenService;
 import com.keny.jobassistant.service.UserService;
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -15,6 +16,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -47,6 +50,19 @@ public class UserServiceImpl implements UserService {
      */
     @Resource
     private RefreshTokenService refreshTokenService;
+
+    // 用于账号不存在时执行 Dummy BCrypt 校验的虚假密码哈希。
+    private String dummyPasswordHash;
+
+    /**
+     * Spring 完成依赖注入后，生成一次虚假的 BCrypt 密码哈希。
+     * 账号不存在时也执行一次 BCrypt matches，
+     * 缩小账号不存在和密码错误两条登录路径的耗时差异。
+     */
+    @PostConstruct
+    public void initializeDummyPasswordHash() {
+        dummyPasswordHash = passwordEncoder.encode(UUID.randomUUID().toString());
+    }
 
     /**
      * 用户注册。
@@ -84,13 +100,19 @@ public class UserServiceImpl implements UserService {
         // 校验登录参数。
         validateLoginParameters(userAccount, userPassword);
         // 先根据用户账号查询数据库。
-        User user = userRepository.findByUserAccountAndIsDelete(userAccount, User.NOT_DELETED).orElseThrow(() -> {
-            log.info("User login failed: account does not exist");
-            return new BusinessException(ErrorCode.INVALID_CREDENTIALS);
-        });
-        // 使用 BCrypt 校验原始密码和数据库密码。
+        Optional<User> optionalUser = userRepository.findByUserAccountAndIsDelete(userAccount, User.NOT_DELETED);
+        // 账号不存在时也执行一次 BCrypt 校验
+        // 这里使用项目启动时生成的虚假 BCrypt哈希执行 matches，让两条登录失败路径都包含一次 BCrypt 计算。
+        if (optionalUser.isEmpty()) {
+            passwordEncoder.matches(userPassword, dummyPasswordHash);
+            log.info("User login failed: invalid credentials");
+            throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
+        }
+        User user = optionalUser.get();
+
+        // 使用 BCrypt 校验原始密码和数据库密码
         if (!passwordEncoder.matches(userPassword, user.getUserPassword())) {
-            log.info("User login failed: password does not match");
+            log.info("User login failed: invalid credentials");
             throw new BusinessException(ErrorCode.INVALID_CREDENTIALS);
         }
         // 被禁用的用户不允许登录。

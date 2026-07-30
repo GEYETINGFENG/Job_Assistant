@@ -1,5 +1,6 @@
 package com.keny.jobassistant;
 import com.keny.jobassistant.common.ErrorCode;
+import com.keny.jobassistant.exception.BusinessException;
 import com.keny.jobassistant.model.entity.User;
 import com.keny.jobassistant.repository.UserRepository;
 import com.keny.jobassistant.service.JwtTokenService;
@@ -8,6 +9,7 @@ import jakarta.annotation.Resource;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -17,7 +19,11 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
+import java.util.UUID;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -48,7 +54,7 @@ class AuthenticationIntegrationTest {
     @Resource
     private UserRepository userRepository;
 
-    @Resource
+    @SpyBean
     private PasswordEncoder passwordEncoder;
 
     @Resource
@@ -172,4 +178,36 @@ class AuthenticationIntegrationTest {
         user.setIsDelete(User.NOT_DELETED);
         return user;
     }
+
+    /**
+     * 验证账号不存在时仍然执行一次 Dummy BCrypt 校验。
+     * 账号不存在和账号存在但密码错误时，
+     * 两条登录失败路径都需要执行一次 PasswordEncoder.matches()。
+     */
+    @Test
+    void nonexistentAccountShouldPerformDummyBcryptCheck() {
+        String missingAccount = "missing" + UUID.randomUUID().toString().replace("-", "");
+        String rawPassword = "TestPassword123";
+
+        // 清空 passwordEncoder之前的调用历史，只统计这一次登录产生的 BCrypt 调用
+        clearInvocations(passwordEncoder);
+
+        // 账号不存在时仍然统一返回 INVALID_CREDENTIALS,不向客户端暴露账号是否真实存在
+        assertThatThrownBy(() -> userService.userLogin(missingAccount, rawPassword))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(exception -> {
+                    BusinessException businessException = (BusinessException) exception;
+                    assertThat(businessException.getCode()).isEqualTo(ErrorCode.INVALID_CREDENTIALS.getCode());
+                });
+
+        // 验证账号不存在时确实执行了一次 BCrypt matches
+        verify(passwordEncoder, times(1)).matches(
+                eq(rawPassword),
+                argThat(encodedPassword -> encodedPassword != null && encodedPassword.startsWith("$2"))
+        );
+        // Dummy Hash 应当在项目启动时生成一次，不能在每次登录请求中重新执行 encode
+        verify(passwordEncoder, never()).encode(anyString());
+    }
+
+
 }
