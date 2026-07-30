@@ -35,6 +35,10 @@ jwt:
   expiration-seconds: 900
   # Refresh Token 有效时间：2592000 秒，也就是 30 天。
   refresh-expiration-seconds: 2592000
+
+  # 同一个旧 Refresh Token 的并发容错时间：5 秒。
+  # 在此时间内重复提交旧 Token，会返回同一次刷新结果。
+  refresh-concurrency-grace-seconds: 5
   # 从环境变量读取 JWT 签名密钥
   secret: ${JWT_SECRET}
 app:

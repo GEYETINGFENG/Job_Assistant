@@ -13,6 +13,8 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -20,8 +22,10 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Refresh Token 服务实现类。
@@ -40,7 +44,7 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
     // 正常用户状态
     private static final int NORMAL_USER_STATUS = 0;
 
-    //生成 Refresh Token 时使用的随机字节数量, 32 字节等于 256 bit
+    // 生成 Refresh Token 时使用的随机字节数量, 32 字节等于 256 bit
     private static final int REFRESH_TOKEN_BYTES = 32;
 
     // Token 类型，固定为 Bearer
@@ -56,9 +60,20 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
     @Resource
     private JwtTokenService jwtTokenService;
 
-    // 从 application.yml中读取Refresh Token 有效时间，单位为秒。
+    // 从 application.yml中读取 Refresh Token 有效时间，单位为秒。
     @Value("${jwt.refresh-expiration-seconds}")
     private long refreshExpirationSeconds;
+
+    // 从 application.yml 中读取并发刷新幂等窗口，默认 5 秒。
+    @Value("${jwt.refresh-concurrency-grace-seconds:5}")
+    private long refreshConcurrencyGraceSeconds;
+
+    /**
+     * Key：旧 Refresh Token 的 SHA-256 哈希,
+     * Value：这次轮换产生的新 Token 组合及缓存信息。
+     * 同一个旧 Refresh Token在5秒内再次提交时，直接返回第一次刷新产生的相同结果，不触发整族撤销。
+     */
+    private final Map<String, CachedRefreshResult> recentRefreshResults = new ConcurrentHashMap<>();
 
     /**
      * 用户登录成功后创建第一个 Refresh Token。
@@ -104,12 +119,37 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
         // 数据库没有保存原始 Token，因此先计算 SHA-256 哈希。
         String tokenHash = hashToken(rawRefreshToken);
 
+        // 清理已经超过 5 秒幂等窗口的缓存结果。
+        removeExpiredRefreshResults();
+
+        //检查缓存，获取仍处于 5 秒幂等窗口内的刷新结果
+        //如果第一次刷新已经完成，稍晚到达的重复请求可以直接获得第一次刷新产生的相同 Token 组合
+        TokenRefreshVO cachedResult = getCachedRefreshResult(tokenHash);
+        if (cachedResult != null) {
+            log.debug("命中 Refresh Token 短暂幂等缓存");
+            return cachedResult;
+        }
+
         /*
          * 根据 Token 哈希查询数据库。
          * Repository 中使用了悲观写锁，可以防止两个并发请求同时使用同一个 Refresh Token
          */
         RefreshToken storedToken = refreshTokenRepository.findByTokenHashForUpdate(tokenHash)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_LOGIN));
+
+        /*
+         * 第二次检查缓存。
+         * 两个标签页可能同时通过第一次缓存检查：
+         * 1. 第一个请求获得悲观锁并完成 Token 轮换
+         * 2. 第二个请求一直等待数据库锁
+         * 3. 第二个请求获得锁以后，必须再次检查缓存
+         * 如果这里命中缓存，直接返回第一次请求产生的 Token，不再将旧 Token 判断为复用攻击。
+         */
+        cachedResult = getCachedRefreshResult(tokenHash);
+        if (cachedResult != null) {
+            log.debug("获取悲观锁后命中 Refresh Token 短暂幂等缓存");
+            return cachedResult;
+        }
         Instant now = Instant.now();
 
         /*
@@ -122,6 +162,8 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
         if (storedToken.getRevokedAt() != null) {
             refreshTokenRepository.revokeByFamilyId(storedToken.getFamilyId(), now);
 
+            // 整个 Token Family 已经被撤销，不应该再返回该 Family 的缓存结果。
+            removeFamilyRefreshResults(storedToken.getFamilyId());
             log.warn(
                     "检测到 Refresh Token 复用，familyId={}，userId={}",
                     storedToken.getFamilyId(),
@@ -139,6 +181,8 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
         if (storedToken.getExpiresAt() == null || !storedToken.getExpiresAt().isAfter(now)) {
             refreshTokenRepository.revokeByFamilyId(storedToken.getFamilyId(), now);
 
+            // 整个 Token Family 已经失效，清除对应的缓存结果。
+            removeFamilyRefreshResults(storedToken.getFamilyId());
             log.info(
                     "拒绝使用已过期的 Refresh Token，familyId={}，userId={}",
                     storedToken.getFamilyId(),
@@ -158,9 +202,13 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
             if (user != null && user.getId() != null) {
                 // 能确定用户 ID 时，撤销该用户的全部 Refresh Token。
                 refreshTokenRepository.revokeByUserId(user.getId(), now);
+                // 用户的全部登录会话都已失效，清除该用户的缓存结果。
+                removeUserRefreshResults(user.getId());
             } else {
                 // 无法确定用户 ID 时，至少撤销当前 Token Family。
                 refreshTokenRepository.revokeByFamilyId(storedToken.getFamilyId(), now);
+                // 清除当前 Token Family 的缓存结果。
+                removeFamilyRefreshResults(storedToken.getFamilyId());
             }
             throw new BusinessException(ErrorCode.NOT_LOGIN);
         }
@@ -178,14 +226,22 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
         // 为当前用户生成新的短期 Access Token。
         String newAccessToken = jwtTokenService.generateAccessToken(user);
 
-        // 将新的 Token 组合返回给客户端。
-        return TokenRefreshVO.builder()
+        // 创建新的 Token 组合。
+        TokenRefreshVO refreshResult = TokenRefreshVO.builder()
                 .accessToken(newAccessToken)
                 .refreshToken(newRefreshToken)
                 .tokenType(TOKEN_TYPE)
                 .expiresIn(jwtTokenService.getExpirationSeconds())
                 .refreshExpiresIn(refreshExpirationSeconds)
                 .build();
+        /*
+         * 将本次成功刷新的结果保存到短暂幂等缓存。
+         * 缓存 Key 使用旧 Token 的哈希，
+         * 因此 5 秒内再次提交同一个旧 Token 时，
+         * 会返回完全相同的 Access Token 和 Refresh Token。
+         */
+        cacheRefreshResult(tokenHash, refreshResult, storedToken.getFamilyId(), user.getId());
+        return refreshResult;
     }
 
     /**
@@ -210,6 +266,8 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
         RefreshToken storedToken = optionalToken.get();
         // 撤销同一登录会话中的全部有效 Refresh Token。
         refreshTokenRepository.revokeByFamilyId(storedToken.getFamilyId(), Instant.now());
+        // 退出登录后不能再通过短暂缓存获得新的 Token。
+        removeFamilyRefreshResults(storedToken.getFamilyId());
     }
 
     // 根据用户id撤销指定用户的全部有效 Refresh Token
@@ -221,6 +279,8 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
             return;
         }
         refreshTokenRepository.revokeByUserId(userId, Instant.now());
+        // 用户被删除、禁用或强制下线后，清除其全部刷新缓存。
+        removeUserRefreshResults(userId);
     }
 
     // 获取 Refresh Token 的有效时间
@@ -274,6 +334,96 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
         }
     }
 
+    /**
+     * 将成功的刷新结果保存到短暂幂等缓存。
+     * 缓存在事务提交前可见，这样等待悲观锁的第二个请求获得数据库锁后可以立即读取相同结果。
+     * 如果数据库事务最终回滚，会自动删除本次缓存。
+     */
+    private void cacheRefreshResult(String oldTokenHash, TokenRefreshVO refreshResult, UUID familyId, Long userId) {
+        CachedRefreshResult cachedResult = new CachedRefreshResult(
+                copyTokenRefreshVO(refreshResult),
+                Instant.now().plusSeconds(refreshConcurrencyGraceSeconds),
+                familyId,
+                userId
+        );
+        recentRefreshResults.put(oldTokenHash, cachedResult);
+
+        /*
+         * 如果当前正在 Spring 事务中，注册事务完成回调。
+         * 事务提交成功：保留缓存。
+         * 如果事务失败回滚，删除刚才写入的缓存。
+         */
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            //注册事务监听器，等事务结束的时候，调用这里的回调方法
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                    //如果事务失败就执行删除
+                    if (status != TransactionSynchronization.STATUS_COMMITTED) {
+                        recentRefreshResults.remove(oldTokenHash, cachedResult);
+                    }
+                }
+            });
+        }
+    }
+
+    // 获取仍处于 5 秒幂等窗口内的刷新结果
+    private TokenRefreshVO getCachedRefreshResult(String oldTokenHash) {
+        CachedRefreshResult cachedResult = recentRefreshResults.get(oldTokenHash);
+        if (cachedResult == null) {
+            return null;
+        }
+        // 缓存已经过期时，删除后按正常复用检测流程处理。
+        if (!cachedResult.expiresAt().isAfter(Instant.now())) {
+            recentRefreshResults.remove(oldTokenHash, cachedResult);
+            return null;
+        }
+        return copyTokenRefreshVO(cachedResult.refreshResult());
+    }
+
+    //清除已经超过幂等窗口的缓存结果
+    private void removeExpiredRefreshResults() {
+        Instant now = Instant.now();
+        //这里是遍历所有缓存的结果
+        recentRefreshResults.entrySet().removeIf(entry ->
+                !entry.getValue().expiresAt().isAfter(now)
+        );
+    }
+
+    //清除指定 Token Family 的缓存结果
+    private void removeFamilyRefreshResults(UUID familyId) {
+        if (familyId == null) {
+            return;
+        }
+        recentRefreshResults.entrySet().removeIf(entry ->
+                familyId.equals(entry.getValue().familyId())
+        );
+    }
+
+    // 等事务结束的时候，请调用我这里的回调方法
+    private void removeUserRefreshResults(Long userId) {
+        if (userId == null) {
+            return;
+        }
+        recentRefreshResults.entrySet().removeIf(entry ->
+                userId.equals(entry.getValue().userId())
+        );
+    }
+
+    /**
+     * 复制 TokenRefreshVO,在读写缓存中使用
+     * 避免外部代码修改缓存中保存的可变 VO 对象。
+     */
+    private TokenRefreshVO copyTokenRefreshVO(TokenRefreshVO source) {
+        return TokenRefreshVO.builder()
+                .accessToken(source.getAccessToken())
+                .refreshToken(source.getRefreshToken())
+                .tokenType(source.getTokenType())
+                .expiresIn(source.getExpiresIn())
+                .refreshExpiresIn(source.getRefreshExpiresIn())
+                .build();
+    }
+
     // 校验客户端提交的 Refresh Token 是否为空
     private void validateRawToken(String rawRefreshToken) {
         if (StringUtils.isBlank(rawRefreshToken)) {
@@ -289,5 +439,20 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
         return user != null
                 && Integer.valueOf(User.NOT_DELETED).equals(user.getIsDelete())
                 && Integer.valueOf(NORMAL_USER_STATUS).equals(user.getUserStatus());
+    }
+    /**
+     * 短暂幂等窗口内保存的刷新结果。
+     * record 是只保存数据，不强调业务逻辑的小对象。
+     * refreshResult：第一次刷新产生的 Token 组合。
+     * expiresAt：缓存过期时间。
+     * familyId：退出登录或撤销 Family 时用于清除缓存。
+     * userId：用户被删除或强制下线时用于清除缓存。
+     */
+    private record CachedRefreshResult(
+            TokenRefreshVO refreshResult,
+            Instant expiresAt,
+            UUID familyId,
+            Long userId
+    ) {
     }
 }

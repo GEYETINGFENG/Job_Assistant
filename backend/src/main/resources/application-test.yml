@@ -27,6 +27,8 @@ jwt:
   # Refresh Token 测试有效期为 30 天。
   refresh-expiration-seconds: 2592000
 
+  refresh-concurrency-grace-seconds: 5
+
   # 测试专用密钥
   # 只能用于测试，不能用于生产环境。
   secret: AvObxSiZB93LqeBke5oVxVMgwyu40fga1LnnciYMUuw=
