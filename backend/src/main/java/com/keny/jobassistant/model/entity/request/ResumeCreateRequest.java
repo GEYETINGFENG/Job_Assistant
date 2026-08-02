@@ -15,8 +15,4 @@ public class ResumeCreateRequest implements Serializable {
     private static final long serialVersionUID = 1L;
     //简历名称
     private String resumeName;
-    //简历文件地址
-    private String fileUrl;
-    //AI 解析后的简历 JSON 数据
-    private JsonNode parsedJson;
 }

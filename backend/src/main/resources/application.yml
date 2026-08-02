@@ -23,6 +23,12 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  servlet:
+    multipart:
+      # 单个上传文件最大 10 MB。
+      max-file-size: 10MB
+      # 整个 multipart 请求最大 12 MB。
+      max-request-size: 12MB
 
 server:
   port: 8080
@@ -44,3 +50,24 @@ jwt:
 app:
   cors:
     allowed-origin: http://localhost:5173
+  resume:
+    # PDF 文件保存目录。
+    storage-directory: ./data/resumes
+    ai:
+      # false：只提取 PDF 文本，方便本地开发
+      # true：调用阿里云百炼进行结构化解析
+      enabled: ${RESUME_AI_ENABLED:false}
+      # 阿里云百炼 API Key，只从环境变量读取。
+      api-key: ${DASHSCOPE_API_KEY:}
+      # 阿里云百炼 OpenAI 兼容接口地址。
+      base-url: ${BAILIAN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+      # 使用固定版本，避免模型别名升级后行为变化。
+      model: ${BAILIAN_MODEL:qwen3.7-flash-2026-07-15}
+      # 简历字段抽取不需要复杂推理，关闭思考可以节省 Token。
+      enable-thinking: false
+      # 发送给 AI 的最大字符数。
+      max-text-characters: 30000
+      # 模型最大输出 Token 数。
+      max-output-tokens: 4000
+      # PDF 最大页数。
+      max-pages: 30
