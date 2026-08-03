@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 /**
  * 全局异常处理器。
@@ -70,4 +71,16 @@ public class GlobalExceptionHandler {
         BaseResponse<?> result = ResultUtils.error(ErrorCode.SYSTEM_ERROR);
         return ResponseEntity.status(ErrorCode.SYSTEM_ERROR.getHttpStatus()).body(result);
     }
+
+    /**
+     * 处理上传文件超过 Spring multipart 限制的异常。
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<BaseResponse<?>> maxUploadSizeExceededExceptionHandler(
+            MaxUploadSizeExceededException exception) {
+        BaseResponse<?> result = ResultUtils.error(ErrorCode.PARAMS_ERROR);
+        return ResponseEntity.status(ErrorCode.PARAMS_ERROR.getHttpStatus()).body(result);
+    }
+
+
 }
