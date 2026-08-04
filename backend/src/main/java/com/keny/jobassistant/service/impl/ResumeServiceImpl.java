@@ -1,7 +1,7 @@
 package com.keny.jobassistant.service.impl;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.keny.jobassistant.common.ErrorCode;
 import com.keny.jobassistant.exception.BusinessException;
+import com.keny.jobassistant.model.document.ResumeParseResult;
 import com.keny.jobassistant.model.dto.ResumeDTO;
 import com.keny.jobassistant.model.entity.Resume;
 import com.keny.jobassistant.model.entity.User;
@@ -12,6 +12,7 @@ import com.keny.jobassistant.security.CurrentUserProvider;
 import com.keny.jobassistant.service.ResumeFileStorageService;
 import com.keny.jobassistant.service.ResumeParserService;
 import com.keny.jobassistant.service.ResumeService;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -30,6 +31,7 @@ import java.time.LocalDateTime;
  * 3. 客户端不能自行指定 userId
  */
 @Service
+@Slf4j
 public class ResumeServiceImpl implements ResumeService {
     // 简历默认状态
     private static final int DEFAULT_STATUS = 0;
@@ -60,13 +62,12 @@ public class ResumeServiceImpl implements ResumeService {
      * fileUrl 由后端保存文件后生成，parsedJson 由后端解析文件后生成，
      */
     @Override
-    @Transactional
     public Long createResume(ResumeCreateRequest request, MultipartFile file) {
         validateCreateRequest(request,file);
         // 从 JWT 的 sub 中获取当前登录用户 ID。
         Long currentUserId = currentUserProvider.getCurrentUserId();
-        // PDF 文本提取和 AI 调用在数据库事务之外执行，避免长时间占用数据库事务和连接。
-        JsonNode parsedJson = resumeParserService.parseResume(file);
+        // Tika 类型检测、文本提取、ZIP Bomb 检查和 AI 调用在数据库事务之外执行，避免长时间占用数据库事务和连接。
+        ResumeParseResult parseResult = resumeParserService.parseResume(file);
 
         Long resumeId = transactionTemplate.execute(status -> {
             // 根据 JWT 用户 ID 查询当前用户。
@@ -80,13 +81,13 @@ public class ResumeServiceImpl implements ResumeService {
             // 保存前还没有简历 ID，因此暂时不设置 fileUrl。
             resume.setFileUrl(null);
             // 简历 JSON 数据由后端解析文件后生成。
-            resume.setParsedJson(parsedJson);
+            resume.setParsedJson(parseResult.parsedJson());
             resume.setStatus(DEFAULT_STATUS);
             resume.setCreateTime(now);
             resume.setUpdateTime(now);
             // 先写入数据库获得简历 ID，文件名随后使用该 ID 生成
             Resume savedResume = resumeRepository.saveAndFlush(resume);
-            String fileUrl = resumeFileStorageService.storeResumeFile(savedResume.getId(), file);
+            String fileUrl = resumeFileStorageService.storeResumeFile(savedResume.getId(), file,parseResult.extension());
             // 如果数据库事务最终回滚，删除已经写入本地磁盘的 PDF，避免产生孤立文件
             // 给当前数据库事务注册一个监听器，当事务结束以后执行 afterCompletion()。
             // 如果事务不是成功提交，就删除刚刚保存的 PDF 文件。

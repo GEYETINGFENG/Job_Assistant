@@ -11,12 +11,10 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.MalformedURLException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
-import java.util.Arrays;
 
 /**
  * 本地简历文件存储服务实现类。
@@ -25,8 +23,8 @@ import java.util.Arrays;
  */
 @Service
 public class ResumeFileStorageServiceImpl implements ResumeFileStorageService {
-    //PDF文件头
-    private static final byte[] PDF_HEADER = "%PDF-".getBytes(StandardCharsets.US_ASCII);
+    private static final String PDF_EXTENSION = ".pdf";
+    private static final String DOCX_EXTENSION = ".docx";
     //简历文件存储根目录
     private final Path storageRoot;
     public ResumeFileStorageServiceImpl(
@@ -47,12 +45,14 @@ public class ResumeFileStorageServiceImpl implements ResumeFileStorageService {
         }
     }
 
-    //保存简历 PDF 文件
+    //保存简历文件
     @Override
-    public String storeResumeFile(Long resumeId, MultipartFile file) {
+    public String storeResumeFile(Long resumeId, MultipartFile file, String extension) {
         validateResumeId(resumeId);
-        validatePdfFile(file);
-        Path targetPath = resolveFilePath(resumeId);// 获取保存路径
+        validateStorageExtension(extension);
+        // 防止同一个 ID 遗留 PDF 和 DOCX
+        deleteResumeFile(resumeId);
+        Path targetPath = resolveFilePath(resumeId, extension);// 获取保存路径
         try (InputStream inputStream = file.getInputStream()) { // 从上传文件里面读取数据
             //把上传文件复制到服务器,三个参数分别是用户上传文件，服务器保存位置以及如果目标文件存在，覆盖
             Files.copy(inputStream, targetPath, StandardCopyOption.REPLACE_EXISTING);
@@ -64,18 +64,27 @@ public class ResumeFileStorageServiceImpl implements ResumeFileStorageService {
     }
 
     /**
-     * 根据简历 ID 找到服务器中保存的 PDF 文件，
+     * 根据简历 ID 找到服务器中保存的文件，
      * 把它转换成 Spring可以返回给前端下载的 Resource对象。
      */
     @Override
     public Resource loadResumeFile(Long resumeId) {
         validateResumeId(resumeId);
-        Path filePath = resolveFilePath(resumeId);//根据id拼接路径
+        Path pdfPath = resolveFilePath(resumeId, PDF_EXTENSION);
+        Path docxPath = resolveFilePath(resumeId, DOCX_EXTENSION);
+        Path existingPath;
+        if (Files.isRegularFile(pdfPath)) {//判断这个路径有没有对应文件
+            existingPath = pdfPath;
+        } else if (Files.isRegularFile(docxPath)) {
+            existingPath = docxPath;
+        } else {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Resume file does not exist");
+        }
         try {
             // 把普通文件路径转换成 URI 格式
-            Resource resource = new UrlResource(filePath.toUri());
-            if (!resource.exists() || !resource.isReadable()) {
-                throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Resume file does not exist");
+            Resource resource = new UrlResource(existingPath.toUri());
+            if (!resource.isReadable()) {
+                throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Resume file is not readable");
             }
             return resource;
         } catch (MalformedURLException exception) {
@@ -84,7 +93,7 @@ public class ResumeFileStorageServiceImpl implements ResumeFileStorageService {
     }
 
     /**
-     * 删除简历 PDF 文件。
+     * 删除简历文件。
      */
     @Override
     public void deleteResumeFile(Long resumeId) {
@@ -92,7 +101,8 @@ public class ResumeFileStorageServiceImpl implements ResumeFileStorageService {
             return;
         }
         try {
-            Files.deleteIfExists(resolveFilePath(resumeId));
+            Files.deleteIfExists(resolveFilePath(resumeId, PDF_EXTENSION));
+            Files.deleteIfExists(resolveFilePath(resumeId, DOCX_EXTENSION));
         } catch (IOException exception) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Failed to delete resume file");
         }
@@ -101,9 +111,9 @@ public class ResumeFileStorageServiceImpl implements ResumeFileStorageService {
     /**
      * 根据简历 ID 生成服务器上实际保存 PDF 文件的路径，并且防止路径穿越攻击。
      */
-    private Path resolveFilePath(Long resumeId) {
+    private Path resolveFilePath(Long resumeId,String extension) {
         // 拼接文件路径
-        Path filePath = storageRoot.resolve("resume-" + resumeId + ".pdf").normalize();
+        Path filePath = storageRoot.resolve("resume-" + resumeId + extension).normalize();
         // 防止路径穿越
         if (!filePath.startsWith(storageRoot)) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "Invalid resume file path");
@@ -111,30 +121,12 @@ public class ResumeFileStorageServiceImpl implements ResumeFileStorageService {
         return filePath;
     }
 
-    /**
-     * 校验上传文件是否为 PDF。
-     */
-    private void validatePdfFile(MultipartFile file) {
-        // 没有上传有效文件
-        if (file == null || file.isEmpty()) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Resume file cannot be empty");
-        }
-        // 获取原始文件名,检查文件扩展名(转小写)
-        String originalFilename = file.getOriginalFilename();
-        if (originalFilename == null || !originalFilename.toLowerCase().endsWith(".pdf")) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Only PDF resume files are supported");
-        }
-        // 读取文件内容
-        try (InputStream inputStream = file.getInputStream()) {
-            byte[] fileHeader = inputStream.readNBytes(PDF_HEADER.length);
-            //不只检查扩展名，还检查 PDF 文件头
-            if (!Arrays.equals(fileHeader, PDF_HEADER)) {
-                throw new BusinessException(ErrorCode.PARAMS_ERROR, "Invalid PDF file");
-            }
-        } catch (IOException exception) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Unable to read resume file");
+    private void validateStorageExtension(String extension) {
+        if (!PDF_EXTENSION.equals(extension) && !DOCX_EXTENSION.equals(extension)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Unsupported resume file extension");
         }
     }
+
 
     // 校验简历 ID
     private void validateResumeId(Long resumeId) {

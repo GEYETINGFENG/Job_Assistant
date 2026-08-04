@@ -1,10 +1,10 @@
 package com.keny.jobassistant.service.impl;
-
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.keny.jobassistant.service.PdfTextExtractor;
+import com.keny.jobassistant.model.document.ResumeDocumentContent;
+import com.keny.jobassistant.model.document.ResumeParseResult;
 import com.keny.jobassistant.service.ResumeParserService;
+import com.keny.jobassistant.service.TikaResumeDocumentExtractor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -20,29 +20,28 @@ import org.springframework.web.multipart.MultipartFile;
         havingValue = "false",
         matchIfMissing = true
 )
-public class PdfTextResumeParserServiceImpl implements ResumeParserService {
-
-    private final PdfTextExtractor pdfTextExtractor;
+public class TikaTextResumeParserServiceImpl implements ResumeParserService {
+    private final TikaResumeDocumentExtractor documentExtractor;
     private final ObjectMapper objectMapper; // Java对象 与 JSON互相转换的工具
-
-    public PdfTextResumeParserServiceImpl(
-            PdfTextExtractor pdfTextExtractor,
+    public TikaTextResumeParserServiceImpl(
+            TikaResumeDocumentExtractor documentExtractor,
             ObjectMapper objectMapper
     ) {
-        this.pdfTextExtractor = pdfTextExtractor;
+        this.documentExtractor = documentExtractor;
         this.objectMapper = objectMapper;
     }
 
     /**
-     * 把 PDF 简历里面的文字提取出来，然后包装成一个 JSON 对象返回
+     * 使用 Tika 检测文件并提取正文
      */
     @Override
-    public JsonNode parseResume(MultipartFile file) {
-        String resumeText = pdfTextExtractor.extractText(file);
+    public ResumeParseResult parseResume(MultipartFile file) {
+        ResumeDocumentContent document = documentExtractor.extract(file);
         // 创建一个 JSON 对象
         ObjectNode parsedJson = objectMapper.createObjectNode();
-        parsedJson.put("parserMode", "pdf-text");// 添加字段：当前解析方式
-        parsedJson.put("rawText", resumeText);//  把刚刚提取出来的文本放进去
-        return parsedJson;
+        parsedJson.put("parserMode", "tika");
+        parsedJson.put("mediaType", document.mediaType());
+        parsedJson.put("rawText", document.text());
+        return new ResumeParseResult(parsedJson, document.mediaType(), document.extension());
     }
 }

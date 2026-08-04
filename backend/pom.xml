@@ -28,6 +28,8 @@
     </scm>
     <properties>
         <java.version>17</java.version>
+        <tika.version>3.3.2</tika.version>
+        <commons-compress.version>1.28.0</commons-compress.version>
     </properties>
     <dependencies>
         <dependency>
@@ -104,11 +106,25 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- 读取和解析 PDF 文本 -->
+        <!-- Tika 类型检测、Metadata 和基础接口 -->
         <dependency>
-            <groupId>org.apache.pdfbox</groupId>
-            <artifactId>pdfbox</artifactId>
-            <version>3.0.8</version>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-core</artifactId>
+            <version>${tika.version}</version>
+        </dependency>
+
+        <!-- PDF、DOCX 等标准文档解析器 -->
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-parsers-standard-package</artifactId>
+            <version>${tika.version}</version>
+        </dependency>
+
+        <!-- 与 Tika 对齐的 ZIP 解析依赖 -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-compress</artifactId>
+            <version>${commons-compress.version}</version>
         </dependency>
     </dependencies>
 

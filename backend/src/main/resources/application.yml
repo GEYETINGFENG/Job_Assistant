@@ -53,21 +53,27 @@ app:
   resume:
     # PDF 文件保存目录。
     storage-directory: ./data/resumes
+    security:
+      # Tika 最多允许提取 100000 个字符。
+      max-extracted-characters: 100000
+      zip:
+        # DOCX ZIP 内最多允许 2000 个 Entry。
+        max-entries: 2000
+        # 单个 Entry 最大解压大小：20 MB。
+        max-single-entry-bytes: 20971520
+        # 整个 DOCX 最大解压大小：50 MB。
+        max-total-uncompressed-bytes: 52428800
+        # 最大允许压缩比：100 倍。
+        max-compression-ratio: 100
+        # 解压超过 1 MB 后再检查压缩比。
+        compression-ratio-check-threshold: 1048576
     ai:
       # false：只提取 PDF 文本，方便本地开发
       # true：调用阿里云百炼进行结构化解析
       enabled: ${RESUME_AI_ENABLED:false}
-      # 阿里云百炼 API Key，只从环境变量读取。
       api-key: ${DASHSCOPE_API_KEY:}
-      # 阿里云百炼 OpenAI 兼容接口地址。
       base-url: ${BAILIAN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
-      # 使用固定版本，避免模型别名升级后行为变化。
       model: ${BAILIAN_MODEL:qwen3.7-flash-2026-07-15}
-      # 简历字段抽取不需要复杂推理，关闭思考可以节省 Token。
       enable-thinking: false
-      # 发送给 AI 的最大字符数。
       max-text-characters: 30000
-      # 模型最大输出 Token 数。
       max-output-tokens: 4000
-      # PDF 最大页数。
-      max-pages: 30

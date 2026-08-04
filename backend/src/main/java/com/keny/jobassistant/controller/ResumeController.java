@@ -26,6 +26,11 @@ import java.nio.charset.StandardCharsets;
 public class ResumeController {
     private final ResumeService resumeService;
     private final ResumeFileStorageService resumeFileStorageService;
+    //MediaType 是 Spring 对 MIME 类型的封装，MIME 类型用于描述一个文件是什么格式
+    private static final MediaType DOCX_MEDIA_TYPE =
+            MediaType.parseMediaType(
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ); //DOCX 官方 MIME 类型
     public ResumeController(ResumeService resumeService,ResumeFileStorageService resumeFileStorageService) {
         this.resumeService = resumeService;
         this.resumeFileStorageService = resumeFileStorageService;
@@ -63,14 +68,19 @@ public class ResumeController {
     public ResponseEntity<Resource> downloadResumeFile(@PathVariable Long id) {
         ResumeDTO resume = resumeService.getResume(id);
         Resource fileResource = resumeFileStorageService.loadResumeFile(id);
-        String downloadFilename = resume.getResumeName() + ".pdf";
+
+        String storedFilename = fileResource.getFilename();
+        boolean isDocx = storedFilename != null && storedFilename.toLowerCase().endsWith(".docx");
+        String extension = isDocx ? ".docx" : ".pdf";
+        MediaType contentType = isDocx ? DOCX_MEDIA_TYPE : MediaType.APPLICATION_PDF;
+        String downloadFilename = resume.getResumeName() + extension;
         // 告诉浏览器这个文件应该叫什么名字,应该下载而不是打开
         ContentDisposition contentDisposition = ContentDisposition.attachment()
                 .filename(downloadFilename, StandardCharsets.UTF_8)
                 .build();
-        // 构造 HTTP 响应，把PDF文件真正返回给客户端
+        // 构造 HTTP 响应，把简历文件真正返回给客户端
         return ResponseEntity.ok()
-                .contentType(MediaType.APPLICATION_PDF)
+                .contentType(contentType) //文件类型
                 .header(HttpHeaders.CONTENT_DISPOSITION, contentDisposition.toString())
                 .body(fileResource);
     }
