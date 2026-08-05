@@ -77,3 +77,9 @@ app:
       enable-thinking: false
       max-text-characters: 30000
       max-output-tokens: 4000
+    s3:
+      bucket: ${AWS_S3_BUCKET}
+      region: ${AWS_REGION}
+      presign-duration-minutes: 15 #手动测试先写15分钟
+      staging-prefix: resume-uploads
+      final-prefix: resumes

@@ -5,16 +5,17 @@ import com.keny.jobassistant.common.ResultUtils;
 import com.keny.jobassistant.model.dto.ResumeDTO;
 import com.keny.jobassistant.model.entity.request.ResumeCreateRequest;
 import com.keny.jobassistant.service.ResumeFileStorageService;
+import com.keny.jobassistant.service.ResumeS3UploadService;
 import com.keny.jobassistant.service.ResumeService;
 import org.springframework.core.io.Resource;
-import org.springframework.http.ContentDisposition;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
+import java.util.Optional;
 
 /**
  * 简历接口。
@@ -26,14 +27,16 @@ import java.nio.charset.StandardCharsets;
 public class ResumeController {
     private final ResumeService resumeService;
     private final ResumeFileStorageService resumeFileStorageService;
+    private final ResumeS3UploadService resumeS3UploadService;
     //MediaType 是 Spring 对 MIME 类型的封装，MIME 类型用于描述一个文件是什么格式
     private static final MediaType DOCX_MEDIA_TYPE =
             MediaType.parseMediaType(
                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             ); //DOCX 官方 MIME 类型
-    public ResumeController(ResumeService resumeService,ResumeFileStorageService resumeFileStorageService) {
+    public ResumeController(ResumeService resumeService,ResumeFileStorageService resumeFileStorageService,ResumeS3UploadService resumeS3UploadService) {
         this.resumeService = resumeService;
         this.resumeFileStorageService = resumeFileStorageService;
+        this.resumeS3UploadService = resumeS3UploadService;
     }
     /**
      * 为当前登录用户创建简历，用户身份从 JWT 获取，
@@ -63,14 +66,24 @@ public class ResumeController {
     /**
      * 下载当前登录用户拥有的简历文件。
      * 先调用 getResume 校验资源归属，用户不能下载其他用户的简历文件。
+     * S3 简历返回 302 跳转到短期预签名下载 URL；
+     * 旧的本地简历继续使用原本的 Resource 下载逻辑。
      */
     @GetMapping("/{id}/file")
     public ResponseEntity<Resource> downloadResumeFile(@PathVariable Long id) {
         ResumeDTO resume = resumeService.getResume(id);
+        //尝试生成S3临时下载URL
+        Optional<String> s3DownloadUrl = resumeS3UploadService.createDownloadUrlIfPresent(id);
+
+        if (s3DownloadUrl.isPresent()) {
+            return ResponseEntity.status(HttpStatus.FOUND)
+                    .location(URI.create(s3DownloadUrl.get()))
+                    .build();
+        }
         Resource fileResource = resumeFileStorageService.loadResumeFile(id);
 
         String storedFilename = fileResource.getFilename();
-        boolean isDocx = storedFilename != null && storedFilename.toLowerCase().endsWith(".docx");
+        boolean isDocx = storedFilename != null && storedFilename.toLowerCase(Locale.ROOT).endsWith(".docx");
         String extension = isDocx ? ".docx" : ".pdf";
         MediaType contentType = isDocx ? DOCX_MEDIA_TYPE : MediaType.APPLICATION_PDF;
         String downloadFilename = resume.getResumeName() + extension;

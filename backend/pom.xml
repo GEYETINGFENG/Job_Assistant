@@ -30,7 +30,21 @@
         <java.version>17</java.version>
         <tika.version>3.3.2</tika.version>
         <commons-compress.version>1.28.0</commons-compress.version>
+        <aws.sdk.version>2.50.0</aws.sdk.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>${aws.sdk.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -125,6 +139,16 @@
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-compress</artifactId>
             <version>${commons-compress.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>url-connection-client</artifactId>
         </dependency>
     </dependencies>
 
