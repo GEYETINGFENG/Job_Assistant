@@ -3,13 +3,16 @@ import com.keny.jobassistant.common.ErrorCode;
 import com.keny.jobassistant.exception.BusinessException;
 import com.keny.jobassistant.model.document.ResumeParseResult;
 import com.keny.jobassistant.model.dto.PresignResumeUploadResponse;
+import com.keny.jobassistant.model.dto.ResumeUploadCompleteResponse;
 import com.keny.jobassistant.model.entity.Resume;
 import com.keny.jobassistant.model.entity.ResumeUploadSession;
 import com.keny.jobassistant.model.entity.User;
 import com.keny.jobassistant.model.entity.request.PresignResumeUploadRequest;
 import com.keny.jobassistant.model.enums.ResumeUploadStatus;
+import com.keny.jobassistant.model.enums.ResumeUploadType;
 import com.keny.jobassistant.repository.ResumeRepository;
 import com.keny.jobassistant.repository.ResumeUploadSessionRepository;
+import com.keny.jobassistant.repository.ResumeVersionAtomicRepository;
 import com.keny.jobassistant.repository.UserRepository;
 import com.keny.jobassistant.security.CurrentUserProvider;
 import com.keny.jobassistant.service.support.PathBackedMultipartFile;
@@ -48,6 +51,7 @@ public class ResumeS3UploadService {
     private final ResumeParserService resumeParserService;
     private final ResumeUploadSessionRepository uploadSessionRepository;
     private final ResumeRepository resumeRepository;
+    private final ResumeVersionAtomicRepository resumeVersionAtomicRepository;
     private final UserRepository userRepository;
     private final CurrentUserProvider currentUserProvider;
     private final TransactionTemplate transactionTemplate;
@@ -59,6 +63,7 @@ public class ResumeS3UploadService {
                                  ResumeParserService resumeParserService,
                                  ResumeUploadSessionRepository uploadSessionRepository,
                                  ResumeRepository resumeRepository,
+                                 ResumeVersionAtomicRepository resumeVersionAtomicRepository,
                                  UserRepository userRepository,
                                  CurrentUserProvider currentUserProvider,
                                  PlatformTransactionManager transactionManager,
@@ -69,6 +74,7 @@ public class ResumeS3UploadService {
         this.resumeParserService = resumeParserService;
         this.uploadSessionRepository = uploadSessionRepository;
         this.resumeRepository = resumeRepository;
+        this.resumeVersionAtomicRepository = resumeVersionAtomicRepository;
         this.userRepository = userRepository;
         this.currentUserProvider = currentUserProvider;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
@@ -76,23 +82,37 @@ public class ResumeS3UploadService {
         this.stagingPrefix = stagingPrefix;
         this.finalPrefix = finalPrefix;
     }
+    /**
+     * 创建新简历的预签名上传会话。
+     */
+    public PresignResumeUploadResponse createPresignedUpload(PresignResumeUploadRequest request) {
+        return createPresignedUploadSession(request, ResumeUploadType.CREATE, null);
+    }
 
     /**
-     * 申请 S3 PUT 预签名 URL。
-     * 该方法不会直接上传文件到 S3，而是完成上传前的准备工作：
+     * 为已有简历创建新版本上传会话。
+     */
+    public PresignResumeUploadResponse createPresignedVersionUpload(Long resumeId, PresignResumeUploadRequest request) {
+        validateResumeId(resumeId);
+        return createPresignedUploadSession(request, ResumeUploadType.NEW_VERSION, resumeId);
+    }
+    /**
+     * 创建上传会话并返回 S3 PUT 预签名 URL,该方法不会直接上传文件到 S3，而是完成上传前的准备工作：
      * 1. 校验用户提交的文件信息
      * 2. 创建临时 S3 对象 Key
      * 3. 生成短期 PUT 预签名 URL
      * 4. 保存上传会话 (upload session)
      * 5. 返回上传地址给客户端
-     * @param request 上传请求信息，包括简历名称、文件名、文件大小
-     * @return S3预签名上传地址以及上传相关信息
      */
-    public PresignResumeUploadResponse createPresignedUpload(PresignResumeUploadRequest request) {
+    private PresignResumeUploadResponse createPresignedUploadSession(PresignResumeUploadRequest request, ResumeUploadType uploadType, Long targetResumeId) {
         validatePresignRequest(request); //基础参数校验
         Long currentUserId = currentUserProvider.getCurrentUserId();
         User currentUser = userRepository.findById(currentUserId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_LOGIN));
+        // 为已有简历上传新版本时，必须先确认目标简历属于当前用户。
+        if (uploadType == ResumeUploadType.NEW_VERSION && !resumeRepository.existsByIdAndUser_Id(targetResumeId, currentUserId)) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
+        }
         // 根据文件扩展名确定允许的文件类型
         String extension = resolveAllowedExtension(request.filename());
         // 根据扩展名确定上传Content-Type
@@ -122,6 +142,9 @@ public class ResumeS3UploadService {
         session.setExpectedContentType(contentType);
         session.setExpectedSize(request.fileSize());
         session.setStatus(ResumeUploadStatus.PENDING);
+        session.setUploadType(uploadType);
+        session.setResumeId(targetResumeId);
+        session.setVersionNumber(null);
         session.setExpiresAt(result.expiresAt());
         session.setCreateTime(now);
         session.setUpdateTime(now);
@@ -130,7 +153,7 @@ public class ResumeS3UploadService {
     }
 
     /**
-     * 确认上传完成。
+     * 确认S3上传完成。
      * 1. 校验上传会话归属
      * 2. 检查S3对象是否存在
      * 3. 校验文件大小、类型
@@ -142,7 +165,7 @@ public class ResumeS3UploadService {
      * @param uploadId 上传会话ID
      * @return 创建成功的Resume ID
      */
-    public Long completeUpload(UUID uploadId) {
+    public ResumeUploadCompleteResponse completeUpload(UUID uploadId) {
         if (uploadId == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "Upload ID cannot be null");
         }
@@ -151,13 +174,12 @@ public class ResumeS3UploadService {
         // 返回UploadClaim包含：用户信息，S3 staging Key，文件名，文件扩展名，上传状态，已创建Resume ID
         UploadClaim claim = claimUpload(uploadId, currentUserId);
 
-        // 重复调用已完成的确认接口时，直接返回原 Resume ID，保证幂等。
-        //complete接口可能被重复调用
-        //第一次：上传成功，创建Resume(id=13)
-        //第二次：同一个uploadId再次complete
-        //此时不能重复创建Resume，直接返回之前创建的Resume ID。
+        // 同一个 uploadId 重复调用 complete 时，直接返回第一次处理的结果。
         if (claim.completedResumeId() != null) {
-            return claim.completedResumeId();
+            if (claim.completedVersionNumber() == null) {
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Completed upload has no version number");
+            }
+            return new ResumeUploadCompleteResponse(claim.completedResumeId(), claim.completedVersionNumber());
         }
 
         Path temporaryFile = null; //本地临时文件路径。
@@ -194,11 +216,11 @@ public class ResumeS3UploadService {
             //staging: 用户上传入口，不可信   final: 已经过验证，可以长期保存
             finalObjectKey = "%s/%d/%s/source%s".formatted(finalPrefix, currentUserId, uploadId, parseResult.extension());
             s3StorageService.uploadValidatedObject(finalObjectKey, temporaryFile, resolveContentType(parseResult.extension()));
-            Long resumeId = saveCompletedResume(claim, parseResult, finalObjectKey); //保存业务数据
+            ResumeUploadCompleteResponse response = saveCompletedUpload(claim, parseResult, finalObjectKey);//保存业务数据
 
             // 正式文件已经保存，删除临时上传对象。
             s3StorageService.deleteObjectQuietly(claim.stagingObjectKey());
-            return resumeId;
+            return response;
         } catch (BusinessException exception) {
             //业务异常
             markUploadFailed(uploadId, currentUserId);
@@ -224,17 +246,22 @@ public class ResumeS3UploadService {
 
     /**
      * 为已完成的 S3 简历生成临时下载地址。
+     * 如果该版本不是通过 S3 上传的，
+     * 返回 Optional.empty()，Controller 会尝试读取本地文件。
      * @param resumeId 简历ID
      * @return 如果当前用户拥有该简历，则返回临时下载URL，否则返回空
      */
-    public Optional<String> createDownloadUrlIfPresent(Long resumeId) {
+    public Optional<String> createDownloadUrlIfPresent(Long resumeId, Integer versionNumber) {
         Long currentUserId = currentUserProvider.getCurrentUserId();
 
-        // 根据resumeId，当前用户ID，上传状态来查询对应上传记录。
+        // 根据resumeId，当前用户ID，上传状态和版本号来查询对应上传记录。
         return uploadSessionRepository
-                .findByResumeIdAndUser_IdAndStatus(resumeId, currentUserId, ResumeUploadStatus.COMPLETED)
+                .findCompletedVersion(resumeId, currentUserId, ResumeUploadStatus.COMPLETED, versionNumber)
                 //如果查询到上传记录，获取对应S3正式对象Key。
-                .map(session -> s3StorageService.createPresignedDownloadUrl(session.getObjectKey(), Duration.ofMinutes(5)));
+                .map(
+                    session ->
+                            s3StorageService.createPresignedDownloadUrl(session.getObjectKey(), Duration.ofMinutes(5))
+                );
     }
 
     /**
@@ -252,9 +279,20 @@ public class ResumeS3UploadService {
                     .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Upload session does not exist"));
             // 如果之前已经完成,那么再次调用complete接口：不重新解析文件,不重新创建Resume-->直接返回之前生成的Resume ID
             if (session.getStatus() == ResumeUploadStatus.COMPLETED) {
-                return new UploadClaim(session.getResumeId(), session.getId(), currentUserId, session.getResumeName(),
-                        session.getOriginalFilename(), session.getObjectKey(), session.getExpectedExtension(),
-                        session.getExpectedContentType(), session.getExpectedSize());
+                return new UploadClaim(
+                        session.getResumeId(),
+                        session.getVersionNumber(),
+                        session.getId(),
+                        currentUserId,
+                        session.getUploadType(),
+                        session.getResumeId(),
+                        session.getResumeName(),
+                        session.getOriginalFilename(),
+                        session.getObjectKey(),
+                        session.getExpectedExtension(),
+                        session.getExpectedContentType(),
+                        session.getExpectedSize()
+                );
             }
             if (session.getExpiresAt().isBefore(Instant.now())) { //检查上传会话是否过期
                 throw new BusinessException(ErrorCode.PARAMS_ERROR, "Upload session has expired");
@@ -267,9 +305,20 @@ public class ResumeS3UploadService {
             //后续开始 S3检查，文件下载，Tika解析，AI解析
             session.setUpdateTime(Instant.now());
             uploadSessionRepository.save(session);
-            return new UploadClaim(null, session.getId(), currentUserId, session.getResumeName(),
-                    session.getOriginalFilename(), session.getObjectKey(), session.getExpectedExtension(),
-                    session.getExpectedContentType(), session.getExpectedSize());
+            return new UploadClaim(
+                    null,
+                    null,
+                    session.getId(),
+                    currentUserId,
+                    session.getUploadType(),
+                    session.getResumeId(),
+                    session.getResumeName(),
+                    session.getOriginalFilename(),
+                    session.getObjectKey(),
+                    session.getExpectedExtension(),
+                    session.getExpectedContentType(),
+                    session.getExpectedSize()
+            );
         });
         if (claim == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Failed to claim upload session");
@@ -296,58 +345,98 @@ public class ResumeS3UploadService {
     }
 
     /**
-     * 创建 Resume，并将上传会话切换为 COMPLETED。
-     * 1. 创建 Resume 业务数据
-     * 2. 保存 AI 解析结果
-     * 3. 更新正式文件访问地址
-     * 4. 更新上传会话状态
-     * 只有当：文件已经通过 Tika 校验，AI解析成功，正式S3对象上传成功后才会进入该方法。
+     * 保存本次 S3 上传对应的 Resume 数据，并将上传会话切换为 COMPLETED。
+     * CREATE：
+     * 1. 创建新的 Resume
+     * 2. latest_version_number 初始为 0
+     * 3. 原子 SQL 创建 V1
+     *
+     * NEW_VERSION：
+     * 1. 不创建新的 Resume
+     * 2. 使用原来的 resumeId
+     * 3. 原子 SQL 创建 V2、V3 等新版本
+     *
+     * 原子 SQL 同时完成：
+     * 1. latest_version_number + 1
+     * 2. 更新 resume 当前最新数据
+     * 3. 插入 resume_version 历史快照
+     *
      * @param claim 上传会话信息
      * @param parseResult AI解析后的简历结果
      * @param finalObjectKey 正式S3对象Key
-     * @return 创建成功的Resume ID
+     * @return Resume ID以及本次创建的版本号
      */
-    private Long saveCompletedResume(UploadClaim claim, ResumeParseResult parseResult, String finalObjectKey) {
-        //使用事务执行整个数据库操作
-        Long resumeId = transactionTemplate.execute(status -> { //查询上传会话，并加数据库行锁。
-            //防止多个请求同时complete同一个uploadId
+    private ResumeUploadCompleteResponse saveCompletedUpload(UploadClaim claim, ResumeParseResult parseResult, String finalObjectKey) {
+        ResumeUploadCompleteResponse response = transactionTemplate.execute(status -> {
+            //查询上传会话，并加数据库行锁，防止多个请求同时complete同一个uploadId
             ResumeUploadSession session = uploadSessionRepository.findForUpdateByIdAndUserId(claim.uploadId(), claim.userId())
                     .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Upload session does not exist"));
             // 这里只允许PROCESSING状态进入COMPLETED,防止已失败的上传或者已经完成的上传被重复处理
             if (session.getStatus() != ResumeUploadStatus.PROCESSING) {
                 throw new BusinessException(ErrorCode.PARAMS_ERROR, "Upload session is not processing");
             }
+            Long targetResumeId;
+            //CREATE：当前是在创建一份全新的简历，因此先创建 Resume 主记录，latestVersionNumber 初始为0。
+            if (claim.uploadType() == ResumeUploadType.CREATE) {
+                User currentUser = userRepository.findById(claim.userId())
+                        .orElseThrow(() -> new BusinessException(ErrorCode.NOT_LOGIN));
+                LocalDateTime now = LocalDateTime.now();
+                Resume resume = new Resume();
+                resume.setUser(currentUser);
+                resume.setResumeName(claim.resumeName());
+                // 当前最新数据稍后统一交给原子SQL写入。
+                resume.setFileUrl(null);
+                resume.setParsedJson(null);
+                resume.setStatus(DEFAULT_RESUME_STATUS);
+                resume.setLatestVersionNumber(0);
+                resume.setCreateTime(now);
+                resume.setUpdateTime(now);
+                //先保存主记录，拿到数据库生成的resumeId。
+                Resume savedResume = resumeRepository.saveAndFlush(resume);
+                targetResumeId = savedResume.getId();
+            } else {
+                //NEW_VERSION：不再创建新的 Resume ID，直接继续使用申请预签名URL时保存的原resumeId
+                targetResumeId = claim.targetResumeId();
+                if (targetResumeId == null) {
+                    throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Target resume ID is missing");
+                }
+            }
+            String fileUrl = "/resumes/" + targetResumeId + "/file";
 
-            User currentUser = userRepository.findById(claim.userId())
-                    .orElseThrow(() -> new BusinessException(ErrorCode.NOT_LOGIN));
+            /*
+             * 使用原子SQL生成版本号。
+             * CREATE：latest_version_number 0 -> 1，创建V1。
+             * NEW_VERSION：例如latest_version_number当前为1，原子增加以后变成2，并创建V2。
+             * SQL内部还带：
+             * WHERE id = targetResumeId AND user_id = claim.userId()
+             * 因此NEW_VERSION即使在presign之后资源归属发生变化，
+             * 这里仍然会再次完成最终资源归属校验。
+             */
+            Integer versionNumber = resumeVersionAtomicRepository
+                    .createNextVersion(targetResumeId, claim.userId(), claim.resumeName(), fileUrl, parseResult.parsedJson())
+                    .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
 
-            LocalDateTime now = LocalDateTime.now();
-            Resume resume = new Resume();
-            resume.setUser(currentUser);
-            resume.setResumeName(claim.resumeName());
-            resume.setFileUrl(null);
-            resume.setParsedJson(parseResult.parsedJson());
-            resume.setStatus(DEFAULT_RESUME_STATUS);
-            resume.setCreateTime(now);
-            resume.setUpdateTime(now);
+            // 新创建简历的第一个版本必须是V1。
+            if (claim.uploadType() == ResumeUploadType.CREATE && versionNumber != 1) {
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Initial resume version must be version 1");
+            }
+            //完成后把staging Key修改为正式S3 Key。
+            session.setObjectKey(finalObjectKey);
 
-            Resume savedResume = resumeRepository.saveAndFlush(resume);
-            savedResume.setFileUrl("/resumes/" + savedResume.getId() + "/file");
-            savedResume.setUpdateTime(LocalDateTime.now());
-            resumeRepository.save(savedResume);
-
-            session.setObjectKey(finalObjectKey);//完成了就改成最终的目录
-            session.setResumeId(savedResume.getId());
+            //CREATE这里写入刚创建的resumeId；
+            //NEW_VERSION这里仍然是原来的resumeId。
+            session.setResumeId(targetResumeId);
+            //记录本次上传最终创建的版本号。
+            session.setVersionNumber(versionNumber);
             session.setStatus(ResumeUploadStatus.COMPLETED);
             session.setUpdateTime(Instant.now());
             uploadSessionRepository.save(session);
-
-            return savedResume.getId();
+            return new ResumeUploadCompleteResponse(targetResumeId, versionNumber);
         });
-        if (resumeId == null) {
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Failed to create resume");
+        if (response == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Failed to save completed resume upload");
         }
-        return resumeId;
+        return response;
     }
     //当简历上传流程失败时，把上传会话状态从 PROCESSING 标记为 FAILED
     private void markUploadFailed(UUID uploadId, Long currentUserId) {
@@ -388,6 +477,12 @@ public class ResumeS3UploadService {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "Resume file is too large");
         }
     }
+    // 校验简历ID
+    private void validateResumeId(Long resumeId) {
+        if (resumeId == null || resumeId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Invalid resume ID");
+        }
+    }
 
     private String resolveAllowedExtension(String filename) {
         String normalizedFilename = filename.toLowerCase(Locale.ROOT);
@@ -423,8 +518,11 @@ public class ResumeS3UploadService {
 
     private record UploadClaim(
             Long completedResumeId,
+            Integer completedVersionNumber,
             UUID uploadId,
             Long userId,
+            ResumeUploadType uploadType,
+            Long targetResumeId,
             String resumeName,
             String originalFilename,
             String stagingObjectKey,

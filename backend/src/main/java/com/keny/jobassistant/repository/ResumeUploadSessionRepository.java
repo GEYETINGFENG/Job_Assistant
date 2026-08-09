@@ -21,7 +21,20 @@ public interface ResumeUploadSessionRepository extends JpaRepository<ResumeUploa
     Optional<ResumeUploadSession> findForUpdateByIdAndUserId(@Param("id") UUID id, @Param("userId") Long userId);
 
     /**
-     * 根据 Resume ID 查找已经完成的 S3 上传记录。
+     * 查询某份简历指定版本对应的已完成 S3 上传记录。
      */
-    Optional<ResumeUploadSession> findByResumeIdAndUser_IdAndStatus(Long resumeId, Long userId, ResumeUploadStatus status);
+    @Query("""
+            select session
+            from ResumeUploadSession session
+            where session.resumeId = :resumeId
+              and session.user.id = :userId
+              and session.status = :status
+              and session.versionNumber = :versionNumber
+            """)
+    Optional<ResumeUploadSession> findCompletedVersion(
+            @Param("resumeId") Long resumeId,
+            @Param("userId") Long userId,
+            @Param("status") ResumeUploadStatus status,
+            @Param("versionNumber") Integer versionNumber
+    );
 }

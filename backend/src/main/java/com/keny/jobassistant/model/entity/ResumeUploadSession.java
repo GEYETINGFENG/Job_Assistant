@@ -1,6 +1,7 @@
 package com.keny.jobassistant.model.entity;
 
 import com.keny.jobassistant.model.enums.ResumeUploadStatus;
+import com.keny.jobassistant.model.enums.ResumeUploadType;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -56,6 +57,20 @@ public class ResumeUploadSession {
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private ResumeUploadStatus status;
+
+    /**
+     * 上传类型。
+     * CREATE：创建新简历。 NEW_VERSION：给已有简历增加新版本。
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "upload_type", nullable = false, length = 20)
+    private ResumeUploadType uploadType;
+
+    /**
+     * 本次上传最终创建出来的版本号。
+     */
+    @Column(name = "version_number")
+    private Integer versionNumber;
 
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;

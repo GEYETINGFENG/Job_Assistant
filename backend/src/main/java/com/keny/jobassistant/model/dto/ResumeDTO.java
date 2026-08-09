@@ -40,6 +40,11 @@ public class ResumeDTO implements Serializable {
     private Integer status;
 
     /**
+     * 当前最新版本号。
+     */
+    private Integer latestVersionNumber;
+
+    /**
      * 创建时间。
      */
     private LocalDateTime createTime;

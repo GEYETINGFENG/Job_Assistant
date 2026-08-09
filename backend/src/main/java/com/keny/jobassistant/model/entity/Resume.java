@@ -9,6 +9,8 @@ import java.time.LocalDateTime;
 
 /**
  * 用户简历实体。
+ * resume 表保存简历当前最新版本的数据，
+ * 历史版本保存在 resume_version 表中
  */
 @Entity
 @Table(name = "resume")
@@ -52,6 +54,14 @@ public class Resume {
      */
     @Column(name = "status")
     private Integer status = 0;
+
+    /**
+     * 当前最新版本号。
+     *  0 仅表示该 Resume 尚未成功创建任何版本，不代表存在 V0。
+     * 创建第一份简历时，会通过原子 SQL 将 0 增加为 1，因此用户能够看到的第一个有效版本始终是 V1。
+     */
+    @Column(name = "latest_version_number", nullable = false)
+    private Integer latestVersionNumber = 0;
 
     /**
      * 创建时间。
