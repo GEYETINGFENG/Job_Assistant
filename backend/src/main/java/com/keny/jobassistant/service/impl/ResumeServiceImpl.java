@@ -6,13 +6,18 @@ import com.keny.jobassistant.model.dto.ResumeVersionDTO;
 import com.keny.jobassistant.model.dto.ResumeVersionSummaryDTO;
 import com.keny.jobassistant.model.entity.Resume;
 import com.keny.jobassistant.model.entity.ResumeVersion;
+import com.keny.jobassistant.model.entity.request.ResumeUpdateRequest;
 import com.keny.jobassistant.repository.ResumeRepository;
 import com.keny.jobassistant.repository.ResumeVersionRepository;
 import com.keny.jobassistant.security.CurrentUserProvider;
 import com.keny.jobassistant.service.ResumeService;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -90,6 +95,50 @@ public class ResumeServiceImpl implements ResumeService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
         return toResumeVersionDTO(resumeVersion);
     }
+    /**
+     * 编辑已有简历。
+     * 使用乐观锁防止两个并发请求互相覆盖修改结果。
+     */
+    @Override
+    @Transactional
+    public ResumeDTO updateResume(Long resumeId, ResumeUpdateRequest request) {
+        validateResumeId(resumeId);
+
+        if (request == null || StringUtils.isBlank(request.getResumeName())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Resume name cannot be blank");
+        }
+
+        if (request.getResumeName().strip().length() > 256) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Resume name is too long");
+        }
+
+        if (request.getLockVersion() == null || request.getLockVersion() < 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Lock version is required");
+        }
+
+        Long currentUserId = currentUserProvider.getCurrentUserId();
+        Resume resume = resumeRepository.findByIdAndUser_Id(resumeId, currentUserId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
+        /*
+         * 客户端拿到的是旧版本，
+         * 说明这份 Resume 在客户端读取以后已经被修改过。
+         */
+        if (!request.getLockVersion().equals(resume.getLockVersion())) {
+            throw new BusinessException(ErrorCode.OPTIMISTIC_LOCK_CONFLICT, "Resume has been modified, please refresh and retry");
+        }
+        resume.setResumeName(request.getResumeName().strip());
+        resume.setUpdateTime(LocalDateTime.now());
+        try {
+            /*
+             * saveAndFlush 必须立即执行 UPDATE，这样乐观锁冲突会在当前方法中直接抛出，
+             * 而不是拖到事务提交阶段才发现。
+             */
+            Resume updatedResume = resumeRepository.saveAndFlush(resume);
+            return toResumeDTO(updatedResume);
+        } catch (ObjectOptimisticLockingFailureException exception) {
+            throw new BusinessException(ErrorCode.OPTIMISTIC_LOCK_CONFLICT, "Resume has been modified concurrently");
+        }
+    }
 
     /**
      * 校验简历 ID。
@@ -120,6 +169,7 @@ public class ResumeServiceImpl implements ResumeService {
         dto.setParsedJson(resume.getParsedJson());
         dto.setStatus(resume.getStatus());
         dto.setLatestVersionNumber(resume.getLatestVersionNumber());
+        dto.setLockVersion(resume.getLockVersion());
         dto.setCreateTime(resume.getCreateTime());
         dto.setUpdateTime(resume.getUpdateTime());
         return dto;

@@ -45,6 +45,11 @@ public class ResumeDTO implements Serializable {
     private Integer latestVersionNumber;
 
     /**
+     * 乐观锁版本号。客户端编辑 Resume 时需要把这个值传回来。
+     */
+    private Long lockVersion;
+
+    /**
      * 创建时间。
      */
     private LocalDateTime createTime;

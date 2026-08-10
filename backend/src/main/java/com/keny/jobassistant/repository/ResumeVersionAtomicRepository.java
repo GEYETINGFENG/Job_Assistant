@@ -29,29 +29,18 @@ public class ResumeVersionAtomicRepository {
             (
                 UPDATE resume
                 SET latest_version_number = latest_version_number + 1,
+                    lock_version = lock_version + 1,
                     resume_name = :resumeName,
                     file_url = :fileUrl,
                     parsed_json = CAST(:contentJson AS JSONB),
                     update_time = CURRENT_TIMESTAMP
                 WHERE id = :resumeId
                   AND user_id = :userId
-                RETURNING
-                    id,
-                    latest_version_number,
-                    parsed_json
+                RETURNING id, latest_version_number, parsed_json
             )
             INSERT INTO resume_version
-            (
-                resume_id,
-                version_number,
-                content_json,
-                create_time
-            )
-            SELECT
-                id,
-                latest_version_number,
-                parsed_json,
-                CURRENT_TIMESTAMP
+            (resume_id, version_number, content_json,create_time)
+            SELECT id, latest_version_number, parsed_json, CURRENT_TIMESTAMP
             FROM updated_resume
             RETURNING version_number
             """;

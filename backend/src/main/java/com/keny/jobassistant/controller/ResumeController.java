@@ -6,9 +6,9 @@ import com.keny.jobassistant.exception.BusinessException;
 import com.keny.jobassistant.model.dto.ResumeDTO;
 import com.keny.jobassistant.model.dto.ResumeVersionDTO;
 import com.keny.jobassistant.model.dto.ResumeVersionSummaryDTO;
+import com.keny.jobassistant.model.entity.request.ResumeUpdateRequest;
 import com.keny.jobassistant.service.ResumeS3UploadService;
 import com.keny.jobassistant.service.ResumeService;
-import org.springframework.core.io.Resource;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
 import java.net.URI;
@@ -71,5 +71,14 @@ public class ResumeController {
         return ResponseEntity.status(HttpStatus.FOUND)
                 .location(URI.create(downloadUrl))
                 .build();
+    }
+
+    /**
+     * 编辑当前用户拥有的简历信息。
+     * 使用 lockVersion 防止并发修改导致数据覆盖。
+     */
+    @PatchMapping("/{id}")
+    public BaseResponse<ResumeDTO> updateResume(@PathVariable Long id, @RequestBody ResumeUpdateRequest request) {
+        return ResultUtils.success(resumeService.updateResume(id, request));
     }
 }

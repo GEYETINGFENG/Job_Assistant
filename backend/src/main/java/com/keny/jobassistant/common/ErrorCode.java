@@ -18,7 +18,8 @@ public enum ErrorCode {
     NO_AUTH(40300, HttpStatus.FORBIDDEN, "Forbidden", ""),
     RESOURCE_NOT_FOUND(40400, HttpStatus.NOT_FOUND, "Resource not found", "The requested resource does not exist"),
     ACCOUNT_CONFLICT(40900, HttpStatus.CONFLICT, "User account already exists", ""),
-    SYSTEM_ERROR(50000, HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error", "");
+    SYSTEM_ERROR(50000, HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error", ""),
+    OPTIMISTIC_LOCK_CONFLICT(40900,HttpStatus.CONFLICT, "Concurrent update conflict", "The resource has been modified by another request");
 
     private final int code;
     private final HttpStatus httpStatus;

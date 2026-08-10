@@ -2,6 +2,7 @@ package com.keny.jobassistant.service;
 import com.keny.jobassistant.model.dto.ResumeDTO;
 import com.keny.jobassistant.model.dto.ResumeVersionDTO;
 import com.keny.jobassistant.model.dto.ResumeVersionSummaryDTO;
+import com.keny.jobassistant.model.entity.request.ResumeUpdateRequest;
 
 import java.util.List;
 
@@ -25,4 +26,10 @@ public interface ResumeService {
      * 查询指定简历的某个历史版本。
      */
     ResumeVersionDTO getResumeVersion(Long resumeId, Integer versionNumber);
+
+    /**
+     * 编辑已有简历。
+     * 使用 @Version 防止两个请求同时覆盖对方的修改。
+     */
+    ResumeDTO updateResume(Long resumeId, ResumeUpdateRequest request);
 }

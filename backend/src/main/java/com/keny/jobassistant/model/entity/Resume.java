@@ -64,6 +64,15 @@ public class Resume {
     private Integer latestVersionNumber = 0;
 
     /**
+     * JPA 乐观锁版本号。
+     * 每次通过 JPA 修改 Resume 时由 Hibernate 自动增加，
+     * 用于检测两个事务同时修改同一条 Resume 的情况。
+     */
+    @Version
+    @Column(name = "lock_version", nullable = false)
+    private Long lockVersion;
+
+    /**
      * 创建时间。
      */
     @Column(name = "create_time")
