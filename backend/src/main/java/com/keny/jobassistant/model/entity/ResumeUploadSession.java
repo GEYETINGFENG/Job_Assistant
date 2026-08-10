@@ -72,6 +72,15 @@ public class ResumeUploadSession {
     @Column(name = "version_number")
     private Integer versionNumber;
 
+    /**
+     * 客户端提供的幂等键。
+     * 只对 NEW_VERSION 上传使用。
+     * 同一个用户、同一份 Resume、同一个 key
+     * 只能对应一次新增版本操作。
+     */
+    @Column(name = "idempotency_key", length = 128)
+    private String idempotencyKey;
+
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
 

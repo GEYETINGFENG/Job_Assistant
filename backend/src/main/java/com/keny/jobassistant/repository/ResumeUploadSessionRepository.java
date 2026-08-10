@@ -2,6 +2,7 @@ package com.keny.jobassistant.repository;
 
 import com.keny.jobassistant.model.entity.ResumeUploadSession;
 import com.keny.jobassistant.model.enums.ResumeUploadStatus;
+import com.keny.jobassistant.model.enums.ResumeUploadType;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -19,6 +20,24 @@ public interface ResumeUploadSessionRepository extends JpaRepository<ResumeUploa
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select session from ResumeUploadSession session where session.id = :id and session.user.id = :userId")
     Optional<ResumeUploadSession> findForUpdateByIdAndUserId(@Param("id") UUID id, @Param("userId") Long userId);
+
+    /**
+     * 根据幂等键查询已有的新版本上传操作。
+     * userId + resumeId + idempotencyKey
+     * 共同确定一次新增版本业务操作。
+     */
+    @Query("""
+            select session
+            from ResumeUploadSession session
+            where session.user.id = :userId
+              and session.resumeId = :resumeId
+              and session.uploadType = :uploadType
+              and session.idempotencyKey = :idempotencyKey
+            """)
+    Optional<ResumeUploadSession> findByIdempotencyKey(@Param("userId") Long userId,
+                                                       @Param("resumeId") Long resumeId,
+                                                       @Param("uploadType") ResumeUploadType uploadType,
+                                                       @Param("idempotencyKey") String idempotencyKey);
 
     /**
      * 查询某份简历指定版本对应的已完成 S3 上传记录。

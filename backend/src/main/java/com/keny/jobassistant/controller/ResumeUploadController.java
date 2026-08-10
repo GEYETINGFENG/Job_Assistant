@@ -39,8 +39,9 @@ public class ResumeUploadController {
     @PostMapping("/{resumeId}/versions/uploads/presign")
     public BaseResponse<PresignResumeUploadResponse> createPresignedVersionUpload(
             @PathVariable Long resumeId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody PresignResumeUploadRequest request) {
-        return ResultUtils.success(resumeS3UploadService.createPresignedVersionUpload(resumeId, request));
+        return ResultUtils.success(resumeS3UploadService.createPresignedVersionUpload(resumeId,  idempotencyKey,request));
     }
 
     /**

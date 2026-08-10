@@ -19,6 +19,7 @@ import com.keny.jobassistant.service.support.PathBackedMultipartFile;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -30,6 +31,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -42,6 +44,7 @@ public class ResumeS3UploadService {
 
     private static final int DEFAULT_RESUME_STATUS = 0;
     private static final long MAX_FILE_SIZE = 10L * 1024 * 1024;
+    private static final int MAX_IDEMPOTENCY_KEY_LENGTH = 128;
     private static final String PDF_EXTENSION = ".pdf";
     private static final String DOCX_EXTENSION = ".docx";
     private static final String PDF_CONTENT_TYPE = "application/pdf";
@@ -86,15 +89,16 @@ public class ResumeS3UploadService {
      * 创建新简历的预签名上传会话。
      */
     public PresignResumeUploadResponse createPresignedUpload(PresignResumeUploadRequest request) {
-        return createPresignedUploadSession(request, ResumeUploadType.CREATE, null);
+        return createPresignedUploadSession(request, ResumeUploadType.CREATE, null,null);
     }
 
     /**
      * 为已有简历创建新版本上传会话。
      */
-    public PresignResumeUploadResponse createPresignedVersionUpload(Long resumeId, PresignResumeUploadRequest request) {
+    public PresignResumeUploadResponse createPresignedVersionUpload(Long resumeId, String idempotencyKey, PresignResumeUploadRequest request) {
         validateResumeId(resumeId);
-        return createPresignedUploadSession(request, ResumeUploadType.NEW_VERSION, resumeId);
+        validateIdempotencyKey(idempotencyKey);
+        return createPresignedUploadSession(request, ResumeUploadType.NEW_VERSION, resumeId, idempotencyKey.strip());
     }
     /**
      * 创建上传会话并返回 S3 PUT 预签名 URL,该方法不会直接上传文件到 S3，而是完成上传前的准备工作：
@@ -104,7 +108,7 @@ public class ResumeS3UploadService {
      * 4. 保存上传会话 (upload session)
      * 5. 返回上传地址给客户端
      */
-    private PresignResumeUploadResponse createPresignedUploadSession(PresignResumeUploadRequest request, ResumeUploadType uploadType, Long targetResumeId) {
+    private PresignResumeUploadResponse createPresignedUploadSession(PresignResumeUploadRequest request, ResumeUploadType uploadType, Long targetResumeId,String idempotencyKey) {
         validatePresignRequest(request); //基础参数校验
         Long currentUserId = currentUserProvider.getCurrentUserId();
         User currentUser = userRepository.findById(currentUserId)
@@ -113,12 +117,29 @@ public class ResumeS3UploadService {
         if (uploadType == ResumeUploadType.NEW_VERSION && !resumeRepository.existsByIdAndUser_Id(targetResumeId, currentUserId)) {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
         }
+        //如果是新增版本请求，先检查相同幂等键是否已经存在。
+        //找到了：不再创建新的 uploadId。
+        //没找到：正常创建新的上传会话。
+        if (uploadType == ResumeUploadType.NEW_VERSION) {
+            Optional<ResumeUploadSession> existingSession = uploadSessionRepository.findByIdempotencyKey(
+                    currentUserId,
+                    targetResumeId,
+                    ResumeUploadType.NEW_VERSION,
+                    idempotencyKey
+            );
+            if (existingSession.isPresent()) {
+                return reuseIdempotentUploadSession(existingSession.get(), request);
+            }
+        }
+
         // 根据文件扩展名确定允许的文件类型
         String extension = resolveAllowedExtension(request.filename());
         // 根据扩展名确定上传Content-Type
         String contentType = resolveContentType(extension);
         // 创建唯一上传ID, UUID作为一次上传会话的唯一标识,后续接口里面的 POST /uploads/{uploadId}/complete
         UUID uploadId = UUID.randomUUID();
+        //第一次看到这个Idempotency-Key → 随机生成一个uploadId → 把 Idempotency-Key 和 uploadId 一起存数据库
+        //以后再次看到相同 Idempotency-Key → 不再 UUID.randomUUID() → 从数据库找到第一次的 uploadId → 直接复用
         // 生成S3临时对象Key
         //  eg: resume-uploads/
         //      2/
@@ -145,11 +166,90 @@ public class ResumeS3UploadService {
         session.setUploadType(uploadType);
         session.setResumeId(targetResumeId);
         session.setVersionNumber(null);
+        session.setIdempotencyKey(idempotencyKey);
         session.setExpiresAt(result.expiresAt());
         session.setCreateTime(now);
         session.setUpdateTime(now);
-        uploadSessionRepository.save(session);
+        try {
+            /* saveAndFlush 的原因：
+             * 相同 Idempotency-Key 如果并发请求，数据库 UNIQUE 约束必须在这里立即执行。
+             */
+            uploadSessionRepository.saveAndFlush(session);
+        } catch (DataIntegrityViolationException exception) {
+            /*
+             * 两个相同 key 同时请求时可能发生：
+             * A：查询不存在  B：查询也不存在
+             * A：INSERT 成功
+             * B：INSERT 触发 UNIQUE
+             * B 不创建新任务，而是重新找到 A 创建的任务并复用。
+             */
+            if (uploadType == ResumeUploadType.NEW_VERSION && idempotencyKey != null) {
+                Optional<ResumeUploadSession> existingSession = uploadSessionRepository.findByIdempotencyKey(
+                        currentUserId,
+                        targetResumeId,
+                        ResumeUploadType.NEW_VERSION,
+                        idempotencyKey
+                );
+                if (existingSession.isPresent()) {
+                    return reuseIdempotentUploadSession(existingSession.get(), request);
+                }
+            }
+            throw exception;
+        }
         return new PresignResumeUploadResponse(uploadId, result.uploadUrl(), result.expiresAt(), result.requiredHeaders());
+    }
+
+    /**
+     * 处理重复的 Idempotency-Key。
+     * PENDING：复用原 uploadId，并重新生成同一个 staging Key 的预签名 URL。
+     * PENDING、FAILED 或之前的 URL 已经过期，
+     * 都可以重新生成同一个 staging objectKey 的 URL。
+     * uploadId 不变，所以仍然属于同一次业务操作。
+     */
+    private PresignResumeUploadResponse reuseIdempotentUploadSession(ResumeUploadSession session, PresignResumeUploadRequest request) {
+        validateSameIdempotentRequest(session, request);
+        if (session.getStatus() == ResumeUploadStatus.COMPLETED) {
+            throw new BusinessException(
+                    ErrorCode.PARAMS_ERROR,
+                    "Idempotency key has already completed version " + session.getVersionNumber()
+            );
+        }
+        if (session.getStatus() == ResumeUploadStatus.PROCESSING) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Idempotent upload request is already processing");
+        }
+        Duration duration = Duration.ofMinutes(presignDurationMinutes);
+        ResumeS3StorageService.PresignedUploadResult result = s3StorageService.createPresignedUpload(
+                session.getObjectKey(),
+                session.getExpectedContentType(),
+                duration
+        );
+        session.setStatus(ResumeUploadStatus.PENDING);
+        session.setExpiresAt(result.expiresAt());
+        session.setUpdateTime(Instant.now());
+        uploadSessionRepository.save(session);
+        return new PresignResumeUploadResponse(
+                session.getId(),
+                result.uploadUrl(),
+                result.expiresAt(),
+                result.requiredHeaders()
+        );
+    }
+
+    /**
+     * 同一个 Idempotency-Key 不允许代表两个不同请求。
+     * 例如：
+     * 第一次：key=abc + resume.pdf
+     * 第二次：key=abc + another.pdf
+     * 这种情况属于客户端错误，必须使用新的 key。
+     */
+    private void validateSameIdempotentRequest(ResumeUploadSession session, PresignResumeUploadRequest request) {
+        String resumeName = request.resumeName().strip();
+        boolean sameRequest = Objects.equals(session.getResumeName(), resumeName)
+                && Objects.equals(session.getOriginalFilename(), request.filename())
+                && Objects.equals(session.getExpectedSize(), request.fileSize());
+        if (!sameRequest) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "The same Idempotency-Key cannot be reused for a different upload request");
+        }
     }
 
     /**
@@ -481,6 +581,18 @@ public class ResumeS3UploadService {
     private void validateResumeId(Long resumeId) {
         if (resumeId == null || resumeId <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "Invalid resume ID");
+        }
+    }
+    /**
+     * 校验客户端提供的 Idempotency-Key。
+     */
+    private void validateIdempotencyKey(String idempotencyKey) {
+        if (StringUtils.isBlank(idempotencyKey)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Idempotency-Key cannot be blank");
+        }
+
+        if (idempotencyKey.strip().length() > MAX_IDEMPOTENCY_KEY_LENGTH) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Idempotency-Key is too long");
         }
     }
 
