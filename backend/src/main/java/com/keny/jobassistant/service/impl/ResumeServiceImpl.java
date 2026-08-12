@@ -54,10 +54,9 @@ public class ResumeServiceImpl implements ResumeService {
         // 从 JWT 中获取当前用户 ID。
         Long currentUserId = currentUserProvider.getCurrentUserId();
         //查询条件为：resume.id = resumeId，如果简历属于其他用户，查询结果同样为空
-        Resume resume = resumeRepository.findByIdAndUser_Id(resumeId, currentUserId)
-                .orElseThrow(() -> new BusinessException(
-                        ErrorCode.RESOURCE_NOT_FOUND)
-                );
+        Resume resume = resumeRepository
+                .findByIdAndUser_IdAndIsDelete(resumeId, currentUserId, Resume.NOT_DELETED)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
         return toResumeDTO(resume);
     }
 
@@ -70,11 +69,13 @@ public class ResumeServiceImpl implements ResumeService {
         validateResumeId(resumeId);
         Long currentUserId = currentUserProvider.getCurrentUserId();
         //先校验简历归属，避免无法区分简历不存在、无版本记录或属于其他用户的情况。
-        if (!resumeRepository.existsByIdAndUser_Id(resumeId, currentUserId)) {
+        if (!resumeRepository.existsByIdAndUser_IdAndIsDelete(resumeId, currentUserId, Resume.NOT_DELETED)) {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
         }
         // 查询该用户指定简历的所有历史版本，并转换为返回给前端的 DTO。
-        return resumeVersionRepository.findAllByResumeIdAndUserId(resumeId, currentUserId)
+        return resumeVersionRepository
+                .findAllByResume_IdAndResume_User_IdAndResume_IsDeleteOrderByVersionNumberDesc(
+                        resumeId, currentUserId, Resume.NOT_DELETED)
                 .stream()
                 .map(this::toResumeVersionSummaryDTO)
                 .toList();
@@ -91,7 +92,8 @@ public class ResumeServiceImpl implements ResumeService {
         Long currentUserId = currentUserProvider.getCurrentUserId();
         // 根据简历 ID、用户 ID 和版本号查询历史版本，避免访问其他用户资源。
         ResumeVersion resumeVersion = resumeVersionRepository
-                .findByResumeIdAndUserIdAndVersionNumber(resumeId, currentUserId, versionNumber)
+                .findByResume_IdAndResume_User_IdAndResume_IsDeleteAndVersionNumber(
+                        resumeId, currentUserId, Resume.NOT_DELETED, versionNumber)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
         return toResumeVersionDTO(resumeVersion);
     }
@@ -117,7 +119,8 @@ public class ResumeServiceImpl implements ResumeService {
         }
 
         Long currentUserId = currentUserProvider.getCurrentUserId();
-        Resume resume = resumeRepository.findByIdAndUser_Id(resumeId, currentUserId)
+        Resume resume = resumeRepository
+                .findByIdAndUser_IdAndIsDelete(resumeId, currentUserId, Resume.NOT_DELETED)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
         /*
          * 客户端拿到的是旧版本，
@@ -138,6 +141,25 @@ public class ResumeServiceImpl implements ResumeService {
         } catch (ObjectOptimisticLockingFailureException exception) {
             throw new BusinessException(ErrorCode.OPTIMISTIC_LOCK_CONFLICT, "Resume has been modified concurrently");
         }
+    }
+    /**
+     * 软删除 Resume。
+     * 不执行 repository.delete()，只修改 is_delete。
+     */
+    @Override
+    @Transactional
+    public Boolean deleteResume(Long resumeId) {
+        validateResumeId(resumeId);
+        Long currentUserId = currentUserProvider.getCurrentUserId();
+        Resume resume = resumeRepository
+                .findByIdAndUser_IdAndIsDelete(resumeId, currentUserId, Resume.NOT_DELETED)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
+        LocalDateTime now = LocalDateTime.now();
+        resume.setIsDelete(Resume.DELETED);
+        resume.setDeleteTime(now);
+        resume.setUpdateTime(now);
+        resumeRepository.saveAndFlush(resume);
+        return true;
     }
 
     /**

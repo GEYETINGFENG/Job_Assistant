@@ -2,8 +2,6 @@ package com.keny.jobassistant.repository;
 
 import com.keny.jobassistant.model.entity.ResumeVersion;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -17,33 +15,21 @@ import java.util.Optional;
 public interface ResumeVersionRepository extends JpaRepository<ResumeVersion, Long> {
 
     /**
-     * 查询当前用户某份简历的全部版本。
+     * 查询当前用户某份未删除 Resume 的指定版本。
      */
-    @Query("""
-            select version
-            from ResumeVersion version
-            where version.resume.id = :resumeId
-              and version.resume.user.id = :userId
-            order by version.versionNumber desc
-            """)
-    List<ResumeVersion> findAllByResumeIdAndUserId(
-            @Param("resumeId") Long resumeId,
-            @Param("userId") Long userId
-    );
+    Optional<ResumeVersion> findByResume_IdAndResume_User_IdAndResume_IsDeleteAndVersionNumber(
+            Long resumeId, Long userId, Integer isDelete, Integer versionNumber);
 
     /**
-     * 查询当前用户某份简历的指定版本。
+     * 根据 ResumeVersion 主键查询，
+     * 同时校验版本属于当前用户并且 Resume 尚未删除。
+     * 创建 Application 时使用。
      */
-    @Query("""
-            select version
-            from ResumeVersion version
-            where version.resume.id = :resumeId
-              and version.resume.user.id = :userId
-              and version.versionNumber = :versionNumber
-            """)
-    Optional<ResumeVersion> findByResumeIdAndUserIdAndVersionNumber(
-            @Param("resumeId") Long resumeId,
-            @Param("userId") Long userId,
-            @Param("versionNumber") Integer versionNumber
-    );
+    Optional<ResumeVersion> findByIdAndResume_User_IdAndResume_IsDelete(Long id, Long userId, Integer isDelete);
+
+    /**
+     * 查询当前用户某份未删除 Resume 的所有版本。
+     */
+    List<ResumeVersion> findAllByResume_IdAndResume_User_IdAndResume_IsDeleteOrderByVersionNumberDesc(
+            Long resumeId, Long userId, Integer isDelete);
 }

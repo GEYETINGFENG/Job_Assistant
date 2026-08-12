@@ -114,7 +114,7 @@ public class ResumeS3UploadService {
         User currentUser = userRepository.findById(currentUserId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_LOGIN));
         // 为已有简历上传新版本时，必须先确认目标简历属于当前用户。
-        if (uploadType == ResumeUploadType.NEW_VERSION && !resumeRepository.existsByIdAndUser_Id(targetResumeId, currentUserId)) {
+        if (uploadType == ResumeUploadType.NEW_VERSION && !resumeRepository.existsByIdAndUser_IdAndIsDelete(targetResumeId, currentUserId, Resume.NOT_DELETED)) {
             throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
         }
         //如果是新增版本请求，先检查相同幂等键是否已经存在。

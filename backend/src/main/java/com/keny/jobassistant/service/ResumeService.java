@@ -23,6 +23,11 @@ public interface ResumeService {
     List<ResumeVersionSummaryDTO> listResumeVersions(Long resumeId);
 
     /**
+     * 软删除 Resume，不影响已有 Application。
+     */
+    Boolean deleteResume(Long resumeId);
+
+    /**
      * 查询指定简历的某个历史版本。
      */
     ResumeVersionDTO getResumeVersion(Long resumeId, Integer versionNumber);

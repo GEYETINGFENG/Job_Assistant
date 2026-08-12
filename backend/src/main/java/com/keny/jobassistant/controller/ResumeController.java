@@ -66,7 +66,8 @@ public class ResumeController {
     @GetMapping("/{id}/file")
     public ResponseEntity<Void> downloadResumeFile(@PathVariable Long id) {
         ResumeDTO resume = resumeService.getResume(id);
-        String downloadUrl = resumeS3UploadService.createDownloadUrlIfPresent(id, resume.getLatestVersionNumber())
+        String downloadUrl = resumeS3UploadService
+                .createDownloadUrlIfPresent(id, resume.getLatestVersionNumber())
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Resume file does not exist in S3"));
         return ResponseEntity.status(HttpStatus.FOUND)
                 .location(URI.create(downloadUrl))
@@ -80,5 +81,12 @@ public class ResumeController {
     @PatchMapping("/{id}")
     public BaseResponse<ResumeDTO> updateResume(@PathVariable Long id, @RequestBody ResumeUpdateRequest request) {
         return ResultUtils.success(resumeService.updateResume(id, request));
+    }
+    /**
+     * 软删除 Resume。
+     */
+    @DeleteMapping("/{id}")
+    public BaseResponse<Boolean> deleteResume(@PathVariable Long id) {
+        return ResultUtils.success(resumeService.deleteResume(id));
     }
 }

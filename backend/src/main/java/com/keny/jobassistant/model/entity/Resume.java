@@ -17,6 +17,8 @@ import java.time.LocalDateTime;
 @Getter
 @Setter
 public class Resume {
+    public static final int NOT_DELETED = 0;
+    public static final int DELETED = 1;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -71,6 +73,18 @@ public class Resume {
     @Version
     @Column(name = "lock_version", nullable = false)
     private Long lockVersion;
+
+    /**
+     * 软删除标记。
+     */
+    @Column(name = "is_delete", nullable = false)
+    private Integer isDelete = NOT_DELETED;
+
+    /**
+     * 软删除时间。
+     */
+    @Column(name = "delete_time")
+    private LocalDateTime deleteTime;
 
     /**
      * 创建时间。
