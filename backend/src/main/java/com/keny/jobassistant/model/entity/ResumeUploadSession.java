@@ -12,7 +12,7 @@ import java.util.UUID;
 /**
  * S3 简历上传会话。
  * 一条记录代表一次预签名上传流程。
- * objectKey 只能由后端生成，客户端不能自行指定。
+ * 所有 S3 object key 只能由后端生成，客户端不能自行指定。
  */
 @Getter
 @Setter
@@ -36,14 +36,17 @@ public class ResumeUploadSession {
     @Column(name = "original_filename", nullable = false, length = 256)
     private String originalFilename;
 
-    /**
-     * S3 对象 Key。
-     *
-     * 上传完成前保存临时 Key；
-     * 处理成功后更新为正式 Key。
-     */
-    @Column(name = "object_key", nullable = false, unique = true, length = 512)
-    private String objectKey;
+    /** 客户端通过预签名 URL 写入的临时对象。 */
+    @Column(name = "upload_object_key", length = 512)
+    private String uploadObjectKey;
+
+    /** 后台处理使用的客户端不可写对象；实际冻结逻辑在后续步骤实现。 */
+    @Column(name = "processing_object_key", length = 512)
+    private String processingObjectKey;
+
+    /** 校验和解析成功后长期保存的最终对象。 */
+    @Column(name = "final_object_key", length = 512)
+    private String finalObjectKey;
 
     @Column(name = "expected_extension", nullable = false, length = 10)
     private String expectedExtension;
@@ -86,6 +89,36 @@ public class ResumeUploadSession {
 
     @Column(name = "resume_id")
     private Long resumeId;
+
+    /**
+     * worker 已经领取并开始执行的次数。
+     */
+    @Column(name = "attempt_count", nullable = false)
+    private Integer attemptCount = 0;
+
+    /**
+     * PENDING 任务最早可以再次领取的时间。
+     */
+    @Column(name = "next_attempt_at")
+    private Instant nextAttemptAt;
+
+    /**
+     * 当前处理尝试的开始时间，用于恢复超时的 PROCESSING 任务。
+     */
+    @Column(name = "processing_started_at")
+    private Instant processingStartedAt;
+
+    /**
+     * 当前处理尝试的唯一标识，防止过期 worker 提交结果。
+     */
+    @Column(name = "claim_token")
+    private UUID claimToken;
+
+    @Column(name = "last_error_code", length = 64)
+    private String lastErrorCode;
+
+    @Column(name = "last_error_message", length = 512)
+    private String lastErrorMessage;
 
     @Column(name = "create_time", nullable = false)
     private Instant createTime;

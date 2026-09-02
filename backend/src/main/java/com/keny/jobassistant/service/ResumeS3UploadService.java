@@ -158,15 +158,23 @@ public class ResumeS3UploadService {
         session.setUser(currentUser);
         session.setResumeName(request.resumeName().strip()); //保存用户填写的简历名称
         session.setOriginalFilename(request.filename()); //保存用户原始文件名
-        session.setObjectKey(objectKey); //保存S3临时对象Key
+        session.setUploadObjectKey(objectKey); //保存S3临时对象Key
+        session.setProcessingObjectKey(null);
+        session.setFinalObjectKey(null);
         session.setExpectedExtension(extension); //这里的extension还没有被tika验证过，只是初步上传
         session.setExpectedContentType(contentType);
         session.setExpectedSize(request.fileSize());
-        session.setStatus(ResumeUploadStatus.PENDING);
+        session.setStatus(ResumeUploadStatus.UPLOADING);
         session.setUploadType(uploadType);
         session.setResumeId(targetResumeId);
         session.setVersionNumber(null);
         session.setIdempotencyKey(idempotencyKey);
+        session.setAttemptCount(0);
+        session.setNextAttemptAt(null);
+        session.setProcessingStartedAt(null);
+        session.setClaimToken(null);
+        session.setLastErrorCode(null);
+        session.setLastErrorMessage(null);
         session.setExpiresAt(result.expiresAt());
         session.setCreateTime(now);
         session.setUpdateTime(now);
@@ -201,9 +209,9 @@ public class ResumeS3UploadService {
 
     /**
      * 处理重复的 Idempotency-Key。
-     * PENDING：复用原 uploadId，并重新生成同一个 staging Key 的预签名 URL。
-     * PENDING、FAILED 或之前的 URL 已经过期，
-     * 都可以重新生成同一个 staging objectKey 的 URL。
+     * UPLOADING：复用原 uploadId，并重新生成同一个 staging Key 的预签名 URL。
+     * DEAD、EXPIRED 或之前的 URL 已经过期时，也复用原业务操作重新上传。
+     * PENDING、PROCESSING 表示文件已经进入处理流程，不再发放可覆盖文件的新 URL。
      * uploadId 不变，所以仍然属于同一次业务操作。
      */
     private PresignResumeUploadResponse reuseIdempotentUploadSession(ResumeUploadSession session, PresignResumeUploadRequest request) {
@@ -217,13 +225,22 @@ public class ResumeS3UploadService {
         if (session.getStatus() == ResumeUploadStatus.PROCESSING) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "Idempotent upload request is already processing");
         }
+        if (session.getStatus() == ResumeUploadStatus.PENDING) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Idempotent upload request is already queued for processing");
+        }
         Duration duration = Duration.ofMinutes(presignDurationMinutes);
         ResumeS3StorageService.PresignedUploadResult result = s3StorageService.createPresignedUpload(
-                session.getObjectKey(),
+                session.getUploadObjectKey(),
                 session.getExpectedContentType(),
                 duration
         );
-        session.setStatus(ResumeUploadStatus.PENDING);
+        session.setStatus(ResumeUploadStatus.UPLOADING);
+        session.setAttemptCount(0);
+        session.setNextAttemptAt(null);
+        session.setProcessingStartedAt(null);
+        session.setClaimToken(null);
+        session.setLastErrorCode(null);
+        session.setLastErrorMessage(null);
         session.setExpiresAt(result.expiresAt());
         session.setUpdateTime(Instant.now());
         uploadSessionRepository.save(session);
@@ -323,18 +340,18 @@ public class ResumeS3UploadService {
             return response;
         } catch (BusinessException exception) {
             //业务异常
-            markUploadFailed(uploadId, currentUserId);
+            markUploadDead(claim, Integer.toString(exception.getCode()), resolveBusinessErrorMessage(exception));
             s3StorageService.deleteObjectQuietly(claim.stagingObjectKey());
             s3StorageService.deleteObjectQuietly(finalObjectKey);
             throw exception;
         } catch (IOException exception) {
             //本地文件操作异常
-            markUploadFailed(uploadId, currentUserId);
+            markUploadDead(claim, Integer.toString(ErrorCode.SYSTEM_ERROR.getCode()), "Failed to process temporary resume file");
             s3StorageService.deleteObjectQuietly(claim.stagingObjectKey());
             s3StorageService.deleteObjectQuietly(finalObjectKey);
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Failed to process temporary resume file");
         } catch (RuntimeException exception) {
-            markUploadFailed(uploadId, currentUserId);
+            markUploadDead(claim, Integer.toString(ErrorCode.SYSTEM_ERROR.getCode()), "Unexpected resume processing failure");
             s3StorageService.deleteObjectQuietly(claim.stagingObjectKey());
             s3StorageService.deleteObjectQuietly(finalObjectKey);
             log.error("Unexpected S3 resume processing failure, uploadId={}", uploadId, exception);
@@ -360,7 +377,7 @@ public class ResumeS3UploadService {
                 //如果查询到上传记录，获取对应S3正式对象Key。
                 .map(
                     session ->
-                            s3StorageService.createPresignedDownloadUrl(session.getObjectKey(), Duration.ofMinutes(5))
+                            s3StorageService.createPresignedDownloadUrl(session.getFinalObjectKey(), Duration.ofMinutes(5))
                 );
     }
 
@@ -370,16 +387,16 @@ public class ResumeS3UploadService {
      *  1. 查询当前用户对应的上传会话
      *  2. 使用数据库行锁防止重复处理
      *  3. 检查上传状态是否合法
-     *  4. 将 PENDING 状态修改为 PROCESSING
+     *  4. 将 UPLOADING（或迁移恢复的 PENDING）状态修改为 PROCESSING
      */
     private UploadClaim claimUpload(UUID uploadId, Long currentUserId) {
         //查询上传会话并加行锁.当前事务修改该记录期间，其他事务不能同时修改。
-        UploadClaim claim = transactionTemplate.execute(status -> {
+        UploadClaimResult result = transactionTemplate.execute(status -> {
             ResumeUploadSession session = uploadSessionRepository.findForUpdateByIdAndUserId(uploadId, currentUserId)
                     .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Upload session does not exist"));
             // 如果之前已经完成,那么再次调用complete接口：不重新解析文件,不重新创建Resume-->直接返回之前生成的Resume ID
             if (session.getStatus() == ResumeUploadStatus.COMPLETED) {
-                return new UploadClaim(
+                return new UploadClaimResult(new UploadClaim(
                         session.getResumeId(),
                         session.getVersionNumber(),
                         session.getId(),
@@ -388,24 +405,44 @@ public class ResumeS3UploadService {
                         session.getResumeId(),
                         session.getResumeName(),
                         session.getOriginalFilename(),
-                        session.getObjectKey(),
+                        session.getFinalObjectKey(),
                         session.getExpectedExtension(),
                         session.getExpectedContentType(),
-                        session.getExpectedSize()
-                );
+                        session.getExpectedSize(),
+                        null
+                ), null);
             }
-            if (session.getExpiresAt().isBefore(Instant.now())) { //检查上传会话是否过期
-                throw new BusinessException(ErrorCode.PARAMS_ERROR, "Upload session has expired");
+            Instant now = Instant.now();
+            // expiresAt 限制客户端上传阶段。已经进入 PENDING 的恢复任务不再受预签名 URL 过期时间影响。
+            // 只有还处于客户端上传阶段的任务，才检查预签名 URL 是否过期。
+            if (session.getStatus() == ResumeUploadStatus.UPLOADING && session.getExpiresAt().isBefore(now)) {
+                session.setStatus(ResumeUploadStatus.EXPIRED);// 任务直接设置过期
+                // 清空下面几个，因为任务不能处理了
+                session.setNextAttemptAt(null);
+                session.setProcessingStartedAt(null);
+                session.setClaimToken(null);
+                session.setUpdateTime(now);
+                uploadSessionRepository.save(session);
+                return new UploadClaimResult(null, ResumeUploadStatus.EXPIRED);
             }
-            if (session.getStatus() != ResumeUploadStatus.PENDING) { //不是Pending不允许继续处理
-                throw new BusinessException(ErrorCode.PARAMS_ERROR, "Upload session is not pending");
+            // 只UPLOADING或 PENDING才能被这个方法处理
+            if (session.getStatus() != ResumeUploadStatus.UPLOADING
+                    && session.getStatus() != ResumeUploadStatus.PENDING) {
+                throw new BusinessException(ErrorCode.PARAMS_ERROR, "Upload session cannot be processed from its current status");
             }
+            UUID claimToken = UUID.randomUUID();// 生成 claimToken
             session.setStatus(ResumeUploadStatus.PROCESSING);
+            session.setAttemptCount(Optional.ofNullable(session.getAttemptCount()).orElse(0) + 1);
+            session.setNextAttemptAt(null);
+            session.setProcessingStartedAt(now);
+            session.setClaimToken(claimToken);
+            session.setLastErrorCode(null);
+            session.setLastErrorMessage(null);
             //抢占上传任务。PROCESSING表示：当前线程已经获得处理权
             //后续开始 S3检查，文件下载，Tika解析，AI解析
-            session.setUpdateTime(Instant.now());
+            session.setUpdateTime(now);
             uploadSessionRepository.save(session);
-            return new UploadClaim(
+            return new UploadClaimResult(new UploadClaim(
                     null,
                     null,
                     session.getId(),
@@ -414,16 +451,23 @@ public class ResumeS3UploadService {
                     session.getResumeId(),
                     session.getResumeName(),
                     session.getOriginalFilename(),
-                    session.getObjectKey(),
+                    session.getUploadObjectKey(),
                     session.getExpectedExtension(),
                     session.getExpectedContentType(),
-                    session.getExpectedSize()
-            );
+                    session.getExpectedSize(),
+                    claimToken
+            ), null);
         });
-        if (claim == null) {
+        if (result == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Failed to claim upload session");
         }
-        return claim;
+        if (result.terminalStatus() == ResumeUploadStatus.EXPIRED) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Upload session has expired");
+        }
+        if (result.claim() == null) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Upload claim result is missing");
+        }
+        return result.claim();
     }
 
     /**
@@ -472,8 +516,9 @@ public class ResumeS3UploadService {
             ResumeUploadSession session = uploadSessionRepository.findForUpdateByIdAndUserId(claim.uploadId(), claim.userId())
                     .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND, "Upload session does not exist"));
             // 这里只允许PROCESSING状态进入COMPLETED,防止已失败的上传或者已经完成的上传被重复处理
-            if (session.getStatus() != ResumeUploadStatus.PROCESSING) {
-                throw new BusinessException(ErrorCode.PARAMS_ERROR, "Upload session is not processing");
+            if (session.getStatus() != ResumeUploadStatus.PROCESSING
+                    || !Objects.equals(session.getClaimToken(), claim.claimToken())) {
+                throw new BusinessException(ErrorCode.PARAMS_ERROR, "Upload processing claim is no longer active");
             }
             Long targetResumeId;
             //CREATE：当前是在创建一份全新的简历，因此先创建 Resume 主记录，latestVersionNumber 初始为0。
@@ -520,8 +565,7 @@ public class ResumeS3UploadService {
             if (claim.uploadType() == ResumeUploadType.CREATE && versionNumber != 1) {
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Initial resume version must be version 1");
             }
-            //完成后把staging Key修改为正式S3 Key。
-            session.setObjectKey(finalObjectKey);
+            session.setFinalObjectKey(finalObjectKey);
 
             //CREATE这里写入刚创建的resumeId；
             //NEW_VERSION这里仍然是原来的resumeId。
@@ -529,6 +573,11 @@ public class ResumeS3UploadService {
             //记录本次上传最终创建的版本号。
             session.setVersionNumber(versionNumber);
             session.setStatus(ResumeUploadStatus.COMPLETED);
+            session.setNextAttemptAt(null);
+            session.setProcessingStartedAt(null);
+            session.setClaimToken(null);
+            session.setLastErrorCode(null);
+            session.setLastErrorMessage(null);
             session.setUpdateTime(Instant.now());
             uploadSessionRepository.save(session);
             return new ResumeUploadCompleteResponse(targetResumeId, versionNumber);
@@ -538,21 +587,28 @@ public class ResumeS3UploadService {
         }
         return response;
     }
-    //当简历上传流程失败时，把上传会话状态从 PROCESSING 标记为 FAILED
-    private void markUploadFailed(UUID uploadId, Long currentUserId) {
+    // 当前步骤尚未引入自动重试；同步处理失败先进入 DEAD，后续 worker 步骤再按错误类型决定重试。
+    private void markUploadDead(UploadClaim claim, String errorCode, String errorMessage) {
         try {
             transactionTemplate.executeWithoutResult(status -> {
-                ResumeUploadSession session = uploadSessionRepository.findForUpdateByIdAndUserId(uploadId, currentUserId).orElse(null);
-                //这个代码是放在catch部分的，数据库里还能找到这次上传，并且它正处于正在处理的中间状态，
-                //那么说明这次任务已经开始但没有成功完成，因此把它记录为失败
-                if (session != null && session.getStatus() == ResumeUploadStatus.PROCESSING) {
-                    session.setStatus(ResumeUploadStatus.FAILED);
+                ResumeUploadSession session = uploadSessionRepository
+                        .findForUpdateByIdAndUserId(claim.uploadId(), claim.userId())
+                        .orElse(null);
+                if (session != null
+                        && session.getStatus() == ResumeUploadStatus.PROCESSING
+                        && Objects.equals(session.getClaimToken(), claim.claimToken())) {
+                    session.setStatus(ResumeUploadStatus.DEAD);
+                    session.setNextAttemptAt(null);
+                    session.setProcessingStartedAt(null);
+                    session.setClaimToken(null);
+                    session.setLastErrorCode(errorCode);
+                    session.setLastErrorMessage(truncateErrorMessage(errorMessage));
                     session.setUpdateTime(Instant.now());
                     uploadSessionRepository.save(session);
                 }
             });
         } catch (RuntimeException exception) {
-            log.warn("Failed to mark upload session as failed, uploadId={}", uploadId, exception);
+            log.warn("Failed to mark upload session as dead, uploadId={}", claim.uploadId(), exception);
         }
     }
 
@@ -627,6 +683,23 @@ public class ResumeS3UploadService {
             log.warn("Failed to delete temporary resume file, path={}", temporaryFile, exception);
         }
     }
+    // 负责拿到错误信息
+    private String resolveBusinessErrorMessage(BusinessException exception) {
+        if (StringUtils.isNotBlank(exception.getDescription())) {
+            return exception.getDescription();
+        }
+        return exception.getMessage();
+    }
+    //负责把错误信息整理到可以安全存进数据库的长度
+    private String truncateErrorMessage(String errorMessage) {
+        if (StringUtils.isBlank(errorMessage)) {
+            return "Resume processing failed";
+        }
+        String normalizedMessage = errorMessage.strip();
+        return normalizedMessage.length() <= 512
+                ? normalizedMessage
+                : normalizedMessage.substring(0, 512);
+    }
 
     private record UploadClaim(
             Long completedResumeId,
@@ -640,7 +713,14 @@ public class ResumeS3UploadService {
             String stagingObjectKey,
             String expectedExtension,
             String expectedContentType,
-            long expectedSize
+            long expectedSize,
+            UUID claimToken
+    ) {
+    }
+    //专门用来承载 claimUpload() 里面的两种返回结果
+    private record UploadClaimResult(
+            UploadClaim claim,
+            ResumeUploadStatus terminalStatus
     ) {
     }
 }
