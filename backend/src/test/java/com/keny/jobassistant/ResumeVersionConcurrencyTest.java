@@ -125,6 +125,8 @@ class ResumeVersionConcurrencyTest {
                     parsed_json JSONB,
                     status INTEGER DEFAULT 0,
                     latest_version_number INTEGER NOT NULL DEFAULT 0,
+                    lock_version BIGINT NOT NULL DEFAULT 0,
+                    is_delete INTEGER NOT NULL DEFAULT 0,
                     create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     update_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )

@@ -15,12 +15,15 @@ import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequ
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Amazon S3 简历文件操作服务。
@@ -95,6 +98,56 @@ public class ResumeS3StorageService {
             // 其他S3异常
             log.error("Failed to read S3 object metadata, statusCode={}", exception.statusCode(), exception);
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Failed to verify uploaded file");
+        }
+    }
+
+    /**
+     * 查询对象元数据；对象不存在时返回空，供复制成功但数据库尚未入队的恢复流程使用。
+     */
+    public Optional<StoredObjectMetadata> findObjectMetadata(String objectKey) {
+        HeadObjectRequest request = HeadObjectRequest.builder().bucket(bucketName).key(objectKey).build();
+        try {
+            HeadObjectResponse response = s3Client.headObject(request);
+            return Optional.of(new StoredObjectMetadata(response.contentLength(), response.contentType(), response.eTag()));
+        } catch (S3Exception exception) {
+            if (exception.statusCode() == 404) {
+                // 不存在是协调流程的正常分支，表示复制尚未完成。
+                return Optional.empty();
+            }
+            log.error("Failed to read S3 object metadata, objectKey={}, statusCode={}", objectKey, exception.statusCode(), exception);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Failed to verify processing object");
+        }
+    }
+
+    /**
+     * 把用户上传区里的文件复制到 processing 区，但只有两个条件都满足才允许复制。
+     * 1.源文件 ETag 仍然等于之前检查时的 ETag
+     * 2.目标文件现在还不存在
+     */
+    public void copyObjectIfMatch(String sourceObjectKey, String targetObjectKey, String sourceETag) {
+        if (sourceETag == null || sourceETag.isBlank()) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Uploaded object has no ETag");
+        }
+        // Copy-Source 请求头要求 URL 编码，空格必须使用 %20 而不是表单编码的加号。
+        String encodedCopySource = URLEncoder.encode(bucketName + "/" + sourceObjectKey, StandardCharsets.UTF_8).replace("+", "%20");
+        CopyObjectRequest request = CopyObjectRequest.builder()
+                .bucket(bucketName)
+                .key(targetObjectKey)
+                .copySource(encodedCopySource)
+                .copySourceIfMatch(sourceETag)
+                .ifNoneMatch("*") // 只有目标对象不存在时才允许创建
+                .metadataDirective(MetadataDirective.COPY)
+                .build();
+        try {
+            s3Client.copyObject(request);
+        } catch (S3Exception exception) {
+            if (exception.statusCode() == 412) {
+                // 源 ETag 已变化或并发请求已经创建目标对象，两种情况都按冲突处理。
+                throw new BusinessException(ErrorCode.UPLOAD_CONFLICT, "Uploaded object changed while it was being confirmed");
+            }
+            log.error("Failed to freeze S3 upload, sourceKey={}, targetKey={}, statusCode={}", sourceObjectKey, targetObjectKey,
+                    exception.statusCode(), exception);
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "Failed to freeze uploaded file");
         }
     }
 

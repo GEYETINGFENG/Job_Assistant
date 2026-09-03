@@ -138,7 +138,8 @@ public class SecurityConfig {
         configuration.setAllowedHeaders(List.of(
                 HttpHeaders.AUTHORIZATION,
                 HttpHeaders.CONTENT_TYPE,
-                HttpHeaders.ACCEPT
+                HttpHeaders.ACCEPT,
+                "Idempotency-Key" // 预签名接口使用该请求头识别同一次上传操作。
         ));
 
         //不依赖跨域 Cookie，因此不需要携带凭证

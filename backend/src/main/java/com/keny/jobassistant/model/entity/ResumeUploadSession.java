@@ -40,7 +40,7 @@ public class ResumeUploadSession {
     @Column(name = "upload_object_key", length = 512)
     private String uploadObjectKey;
 
-    /** 后台处理使用的客户端不可写对象；实际冻结逻辑在后续步骤实现。 */
+    /** complete 接口冻结出的客户端不可写对象，worker 始终处理这一份内容。 */
     @Column(name = "processing_object_key", length = 512)
     private String processingObjectKey;
 
@@ -75,12 +75,7 @@ public class ResumeUploadSession {
     @Column(name = "version_number")
     private Integer versionNumber;
 
-    /**
-     * 客户端提供的幂等键。
-     * 只对 NEW_VERSION 上传使用。
-     * 同一个用户、同一份 Resume、同一个 key
-     * 只能对应一次新增版本操作。
-     */
+    /** 客户端提供的幂等键，CREATE 和 NEW_VERSION 都用它避免重复创建业务任务。 */
     @Column(name = "idempotency_key", length = 128)
     private String idempotencyKey;
 

@@ -36,6 +36,7 @@ public class ResumeVersionAtomicRepository {
                     update_time = CURRENT_TIMESTAMP
                 WHERE id = :resumeId
                   AND user_id = :userId
+                  AND is_delete = 0
                 RETURNING id, latest_version_number, parsed_json
             )
             INSERT INTO resume_version

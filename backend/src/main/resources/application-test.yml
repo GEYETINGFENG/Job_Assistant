@@ -34,5 +34,13 @@ jwt:
   secret: AvObxSiZB93LqeBke5oVxVMgwyu40fga1LnnciYMUuw=
 
 app:
+  scheduling:
+    # 单元和集成测试直接调用目标方法，不启动后台轮询线程。
+    enabled: false
+  resume:
+    s3:
+      # 测试只需要创建 S3 客户端，不会访问这个占位 Bucket。
+      bucket: test-resume-bucket
+      region: us-east-1
   cors:
     allowed-origin: http://localhost:5173

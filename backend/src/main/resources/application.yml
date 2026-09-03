@@ -29,6 +29,12 @@ spring:
       max-file-size: 10MB
       # 整个 multipart 请求最大 12 MB。
       max-request-size: 12MB
+  task:
+    scheduling:
+      pool:
+        # worker 和恢复任务使用不同调度线程，避免慢解析阻塞故障恢复。
+        size: 2
+      thread-name-prefix: resume-scheduler-
 
 server:
   port: 8080
@@ -82,4 +88,26 @@ app:
       region: ${AWS_REGION}
       presign-duration-minutes: 15 #手动测试先写15分钟
       staging-prefix: resume-uploads
+      # 客户端只持有 staging 的预签名 URL，不能直接写入该处理目录。
+      processing-prefix: resume-processing
       final-prefix: resumes
+      freeze-recovery:
+        # 避免与仍在执行条件复制的请求竞争。
+        minimum-age-seconds: 30
+        # 每轮扫描结束 30 秒后再次检查。
+        fixed-delay-ms: 30000
+        # 限制单轮恢复数量，避免异常积压时产生突发压力。
+        batch-size: 100
+    worker:
+      # 每轮处理结束 1 秒后继续检查数据库队列。
+      fixed-delay-ms: 1000
+      # 单轮最多领取 3 个任务，避免一个实例长时间占满调度线程。
+      batch-size: 3
+      # 包含首次处理在内最多尝试 3 次，超过后进入 DEAD。
+      max-attempts: 3
+      # 第一次失败等待 30 秒，之后按指数退避增加等待时间。
+      retry-base-delay-seconds: 30
+      # 重试等待最多 10 分钟，避免故障期间请求过于频繁。
+      retry-max-delay-seconds: 600
+      # PROCESSING 超过 15 分钟视为 worker 中断，由协调任务重新入队。
+      processing-timeout-seconds: 900
