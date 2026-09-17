@@ -4,6 +4,8 @@ An AI-powered job assistant system built with **Spring Boot** and **LLM technolo
 
 ## Features
 
+Redis 简历解析缓存的环境配置和手工验收步骤见 [Apifox 验收指南](docs/resume-cache-apifox.md)。
+
 - User authentication and authorization
 - Resume upload and management
 - AI-powered resume parsing and analysis

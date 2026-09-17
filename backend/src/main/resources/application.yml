@@ -1,6 +1,14 @@
 spring:
   application:
     name: JobAssistant
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+      connect-timeout: 2s
+      timeout: 2s
 
   # Data source configuration.
   datasource:
@@ -80,6 +88,9 @@ app:
       api-key: ${DASHSCOPE_API_KEY:}
       base-url: ${BAILIAN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
       model: ${BAILIAN_MODEL:qwen3.7-flash-2026-07-15}
+      # 提示词、输出结构或影响解析结果的配置变化时，必须升级此版本。
+      prompt-version: ${RESUME_AI_PROMPT_VERSION:v1}
+      cache-ttl: ${RESUME_AI_CACHE_TTL:24h}
       enable-thinking: false
       max-text-characters: 30000
       max-output-tokens: 4000

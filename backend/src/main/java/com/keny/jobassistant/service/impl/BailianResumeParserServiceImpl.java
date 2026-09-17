@@ -11,6 +11,7 @@ import com.keny.jobassistant.model.ai.ResumeParsedData;
 import com.keny.jobassistant.model.document.ResumeDocumentContent;
 import com.keny.jobassistant.model.document.ResumeParseResult;
 import com.keny.jobassistant.service.ResumeParserService;
+import com.keny.jobassistant.service.ResumeParseCacheService;
 import com.keny.jobassistant.service.TikaResumeDocumentExtractor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -25,11 +26,11 @@ import org.springframework.web.multipart.MultipartFile;
  * 阿里云百炼简历解析服务实现类。
  *
  * 处理流程：
- * 1. 使用 PDFBox 提取 PDF 文本
- * 2. 将文本提交给阿里云百炼
+ * 1. 使用 Tika 校验 PDF/DOCX 并提取文本
+ * 2. 根据文件摘要及模型、提示词版本查 Redis，未命中才提交给阿里云百炼
  * 3. 使用 JSON Mode 获取标准 JSON
  * 4. 转换成固定的简历数据结构
- * 5. 转换成 JsonNode 保存到 PostgreSQL JSONB
+ * 5. 缓存完整解析结果并返回，由 worker 保存到 PostgreSQL JSONB
  */
 @Service
 @Slf4j
@@ -46,6 +47,7 @@ public class BailianResumeParserServiceImpl implements ResumeParserService {
     private final ObjectMapper objectMapper;
     // Tika文本提取器
     private final TikaResumeDocumentExtractor documentExtractor;
+    private final ResumeParseCacheService cacheService;
     private final String model;
     // 是否开启模型思考模式
     private final boolean enableThinking;
@@ -59,6 +61,7 @@ public class BailianResumeParserServiceImpl implements ResumeParserService {
             // 注入名字叫 bailianRestClient 的 RestClient
             ObjectMapper objectMapper,
             TikaResumeDocumentExtractor documentExtractor,
+            ResumeParseCacheService cacheService,
             @Value("${app.resume.ai.model:qwen3.7-flash-2026-07-15}") String model,
             @Value("${app.resume.ai.enable-thinking:false}") boolean enableThinking,
             @Value("${app.resume.ai.max-text-characters:30000}") int maxTextCharacters,
@@ -67,6 +70,7 @@ public class BailianResumeParserServiceImpl implements ResumeParserService {
         this.bailianRestClient = bailianRestClient;
         this.objectMapper = objectMapper;
         this.documentExtractor = documentExtractor;
+        this.cacheService = cacheService;
         this.model = model;
         this.enableThinking = enableThinking;
         this.maxTextCharacters = maxTextCharacters;
@@ -82,6 +86,12 @@ public class BailianResumeParserServiceImpl implements ResumeParserService {
     @Override
     public ResumeParseResult parseResume(MultipartFile file) {
         ResumeDocumentContent document = documentExtractor.extract(file);
+        // 安全检查必须先完成；命中缓存仅跳过付费模型请求。
+        String cacheKey = cacheService.keyFor(file);
+        var cachedResult = cacheService.find(cacheKey);
+        if (cachedResult.isPresent()) {
+            return cachedResult.get();
+        }
         String aiInputText = document.text();
 
         // 限制发送给模型的文本长度，避免异常 PDF 导致请求过大,直接截断
@@ -92,6 +102,7 @@ public class BailianResumeParserServiceImpl implements ResumeParserService {
         ObjectNode requestBody = buildRequestBody(aiInputText); //构造请求 JSON
         try {
             // 调用百炼 OpenAI 兼容 Chat Completions 接口
+            log.info("开始调用简历解析 LLM，model={}", model);
             JsonNode responseBody = bailianRestClient.post()
                     .uri("/chat/completions")
                     .body(requestBody) // 放入请求体
@@ -101,11 +112,16 @@ public class BailianResumeParserServiceImpl implements ResumeParserService {
             String resultContent = extractResultContent(responseBody);
             // 把字符串转换成ResumeParsedData(Java对象)，相当于AI输出经过了一次Java类型检查
             ResumeParsedData parsedData = objectMapper.readValue(resultContent, ResumeParsedData.class);
+            if (parsedData == null) {
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "AI returned null resume JSON");
+            }
             // 保留原来的 AI 结构化字段，同时将 Tika 检测结果和原始正文写入 parsedJson
             ObjectNode parsedJson = objectMapper.valueToTree(parsedData);
             parsedJson.put("mediaType", document.mediaType());
             parsedJson.put("rawText", document.text());
-            return new ResumeParseResult(parsedJson, document.mediaType(), document.extension());
+            ResumeParseResult result = new ResumeParseResult(parsedJson, document.mediaType(), document.extension());
+            cacheService.put(cacheKey, result);
+            return result;
         } catch (BusinessException exception) {
             // 保留原有业务错误
             throw exception;
