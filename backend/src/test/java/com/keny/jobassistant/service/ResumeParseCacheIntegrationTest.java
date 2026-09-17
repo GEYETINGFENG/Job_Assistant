@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.concurrent.*;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
 import static org.awaitility.Awaitility.await;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -43,6 +44,7 @@ class ResumeParseCacheIntegrationTest {
     private MockRestServiceServer server;
     private RestClient client;
     private MockMultipartFile file;
+    private final LlmRateLimiter limiter = mock(LlmRateLimiter.class);
 
     @BeforeAll
     static void connect() {
@@ -81,6 +83,7 @@ class ResumeParseCacheIntegrationTest {
         ResumeParseResult first = parser.parseResume(file);
         ResumeParseResult second = parser.parseResume(file);
         assertThat(second).isEqualTo(first);
+        verify(limiter, times(1)).acquire();
         assertThat(cache.stats().hit()).isEqualTo(1);
         assertThat(cache.stats().miss()).isEqualTo(1);
         assertThat(cache.stats().hitRate()).isEqualTo(0.5);
@@ -178,7 +181,7 @@ class ResumeParseCacheIntegrationTest {
 
     private BailianResumeParserServiceImpl parser(ResumeParseCacheService targetCache, String model) {
         var extractor = new TikaResumeDocumentExtractor(100000, 2000, 20971520, 52428800, 100, 1048576);
-        return new BailianResumeParserServiceImpl(client, mapper, extractor, targetCache, model, false, 30000, 4000);
+        return new BailianResumeParserServiceImpl(client, mapper, extractor, targetCache, limiter, model, false, 30000, 4000);
     }
 
     private void expectLlm(int count) throws Exception {

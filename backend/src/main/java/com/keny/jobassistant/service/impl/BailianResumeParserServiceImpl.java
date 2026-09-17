@@ -12,6 +12,7 @@ import com.keny.jobassistant.model.document.ResumeDocumentContent;
 import com.keny.jobassistant.model.document.ResumeParseResult;
 import com.keny.jobassistant.service.ResumeParserService;
 import com.keny.jobassistant.service.ResumeParseCacheService;
+import com.keny.jobassistant.service.LlmRateLimiter;
 import com.keny.jobassistant.service.TikaResumeDocumentExtractor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -48,6 +49,7 @@ public class BailianResumeParserServiceImpl implements ResumeParserService {
     // Tika文本提取器
     private final TikaResumeDocumentExtractor documentExtractor;
     private final ResumeParseCacheService cacheService;
+    private final LlmRateLimiter rateLimiter;
     private final String model;
     // 是否开启模型思考模式
     private final boolean enableThinking;
@@ -62,6 +64,7 @@ public class BailianResumeParserServiceImpl implements ResumeParserService {
             ObjectMapper objectMapper,
             TikaResumeDocumentExtractor documentExtractor,
             ResumeParseCacheService cacheService,
+            LlmRateLimiter rateLimiter,
             @Value("${app.resume.ai.model:qwen3.7-flash-2026-07-15}") String model,
             @Value("${app.resume.ai.enable-thinking:false}") boolean enableThinking,
             @Value("${app.resume.ai.max-text-characters:30000}") int maxTextCharacters,
@@ -71,6 +74,7 @@ public class BailianResumeParserServiceImpl implements ResumeParserService {
         this.objectMapper = objectMapper;
         this.documentExtractor = documentExtractor;
         this.cacheService = cacheService;
+        this.rateLimiter = rateLimiter;
         this.model = model;
         this.enableThinking = enableThinking;
         this.maxTextCharacters = maxTextCharacters;
@@ -100,6 +104,8 @@ public class BailianResumeParserServiceImpl implements ResumeParserService {
         }
 
         ObjectNode requestBody = buildRequestBody(aiInputText); //构造请求 JSON
+        // 在普通异常转换之外申请令牌，让 worker 能识别限流等待；缓存命中不会走到这里。
+        rateLimiter.acquire();
         try {
             // 调用百炼 OpenAI 兼容 Chat Completions 接口
             log.info("开始调用简历解析 LLM，model={}", model);

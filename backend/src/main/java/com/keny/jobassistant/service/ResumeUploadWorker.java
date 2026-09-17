@@ -2,6 +2,7 @@ package com.keny.jobassistant.service;
 
 import com.keny.jobassistant.common.ErrorCode;
 import com.keny.jobassistant.exception.BusinessException;
+import com.keny.jobassistant.exception.LlmRateLimitedException;
 import com.keny.jobassistant.model.document.ResumeParseResult;
 import com.keny.jobassistant.model.entity.Resume;
 import com.keny.jobassistant.model.entity.ResumeUploadSession;
@@ -127,6 +128,8 @@ public class ResumeUploadWorker {
             s3StorageService.deleteObjectQuietly(claim.processingObjectKey());
             s3StorageService.deleteObjectQuietly(claim.uploadObjectKey());
             log.info("简历上传任务处理完成，uploadId={}, resumeId={}, version={}", claim.uploadId(), result.resumeId(), result.versionNumber());
+        } catch (LlmRateLimitedException exception) {
+            deferRateLimitedTask(claim, exception.getRetryAfterMillis());
         } catch (BusinessException exception) {
             handleFailure(claim, Integer.toString(exception.getCode()), businessErrorMessage(exception),
                     isRetryable(exception), finalObjectKey, exception);
@@ -138,6 +141,34 @@ public class ResumeUploadWorker {
                     true, finalObjectKey, exception);
         } finally {
             deleteTemporaryFileQuietly(temporaryFile);
+        }
+    }
+
+    /** 限流只重新排队；行锁和 claim token 保证旧 worker 不能撤销新 worker 的领取计数。 */
+    private void deferRateLimitedTask(ResumeUploadTaskClaim claim, long retryAfterMillis) {
+        long delayMillis = Math.max(1000, retryAfterMillis);
+        Boolean deferred = transactionTemplate.execute(status -> {
+            ResumeUploadSession session = uploadSessionRepository.findForUpdateById(claim.uploadId()).orElse(null);
+            if (session == null || session.getStatus() != ResumeUploadStatus.PROCESSING
+                    || !Objects.equals(session.getClaimToken(), claim.claimToken())) {
+                return false;
+            }
+            Instant now = Instant.now();
+            session.setStatus(ResumeUploadStatus.PENDING);
+            session.setAttemptCount(Math.max(0, session.getAttemptCount() - 1));
+            session.setNextAttemptAt(now.plusMillis(delayMillis));
+            session.setProcessingStartedAt(null);
+            session.setClaimToken(null);
+            session.setLastErrorCode("LLM_RATE_LIMITED");
+            session.setLastErrorMessage("Waiting for LLM request quota");
+            session.setUpdateTime(now);
+            uploadSessionRepository.save(session);
+            return true;
+        });
+        if (Boolean.TRUE.equals(deferred)) {
+            log.info("简历任务等待 LLM 额度，uploadId={}, retryAfterMillis={}", claim.uploadId(), delayMillis);
+        } else {
+            log.info("忽略失效 worker 的限流结果，uploadId={}, claimToken={}", claim.uploadId(), claim.claimToken());
         }
     }
 

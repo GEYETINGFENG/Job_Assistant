@@ -5,6 +5,7 @@ import com.keny.jobassistant.common.BaseResponse;
 import com.keny.jobassistant.common.ErrorCode;
 import com.keny.jobassistant.controller.ResumeUploadController;
 import com.keny.jobassistant.exception.BusinessException;
+import com.keny.jobassistant.exception.LlmRateLimitedException;
 import com.keny.jobassistant.model.document.ResumeParseResult;
 import com.keny.jobassistant.model.dto.PresignResumeUploadResponse;
 import com.keny.jobassistant.model.dto.ResumeUploadCompleteResponse;
@@ -374,6 +375,91 @@ class ResumeUploadTaskStateMachineTest {
         }
     }
 
+    /** 即使已是最后一次尝试，限流也只撤销本次领取计数，不使任务进入 DEAD。 */
+    @ParameterizedTest
+    @CsvSource({"1,1", "3,2500"})
+    void rateLimitShouldDeferWithoutUsingFailureAttempt(int attemptCount, long waitMillis) throws Exception {
+        enableTransactions();
+        ResumeUploadTaskClaim claim = taskClaim(ResumeUploadType.CREATE, null, attemptCount);
+        ResumeUploadSession session = processingSession(claim);
+        when(taskClaimRepository.claimNext(any(UUID.class))).thenReturn(Optional.of(claim));
+        stubDownload(claim);
+        when(resumeParserService.parseResume(any(MultipartFile.class))).thenThrow(new LlmRateLimitedException(waitMillis));
+        when(uploadSessionRepository.findForUpdateById(claim.uploadId())).thenReturn(Optional.of(session));
+        Instant before = Instant.now();
+
+        newWorker().processPendingUploads();
+
+        assertThat(session.getStatus()).isEqualTo(ResumeUploadStatus.PENDING);
+        assertThat(session.getAttemptCount()).isEqualTo(attemptCount - 1);
+        assertThat(session.getNextAttemptAt()).isAfterOrEqualTo(before.plusMillis(Math.max(1000, waitMillis)));
+        assertThat(session.getClaimToken()).isNull();
+        assertThat(session.getProcessingStartedAt()).isNull();
+        assertThat(session.getLastErrorCode()).isEqualTo("LLM_RATE_LIMITED");
+        verify(s3StorageService, never()).deleteObjectQuietly(any());
+        verifyNoInteractions(resumeRepository, resumeVersionAtomicRepository);
+    }
+
+    /** 重复等待仍保留原有失败次数；失效领取或已完成任务不能被重新排队。 */
+    @Test
+    void repeatedRateLimitsShouldPreservePreviousFailures() throws Exception {
+        enableTransactions();
+        ResumeUploadTaskClaim claim = taskClaim(ResumeUploadType.CREATE, null, 3);
+        ResumeUploadSession session = processingSession(claim);
+        when(taskClaimRepository.claimNext(any(UUID.class))).thenReturn(Optional.of(claim));
+        stubDownload(claim);
+        when(resumeParserService.parseResume(any(MultipartFile.class))).thenThrow(new LlmRateLimitedException(1));
+        when(uploadSessionRepository.findForUpdateById(claim.uploadId())).thenReturn(Optional.of(session));
+        for (int i = 0; i < 5; i++) {
+            session.setStatus(ResumeUploadStatus.PROCESSING);
+            session.setClaimToken(claim.claimToken());
+            session.setAttemptCount(3);
+            newWorker().processPendingUploads();
+            assertThat(session.getStatus()).isEqualTo(ResumeUploadStatus.PENDING);
+            assertThat(session.getAttemptCount()).isEqualTo(2);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"PROCESSING", "COMPLETED"})
+    void staleRateLimitShouldNotChangeSession(ResumeUploadStatus currentStatus) throws Exception {
+        enableTransactions();
+        ResumeUploadTaskClaim claim = taskClaim(ResumeUploadType.CREATE, null, 3);
+        ResumeUploadSession session = processingSession(claim);
+        session.setStatus(currentStatus);
+        UUID currentToken = UUID.randomUUID();
+        session.setClaimToken(currentToken);
+        when(taskClaimRepository.claimNext(any(UUID.class))).thenReturn(Optional.of(claim));
+        stubDownload(claim);
+        when(resumeParserService.parseResume(any(MultipartFile.class))).thenThrow(new LlmRateLimitedException(1000));
+        when(uploadSessionRepository.findForUpdateById(claim.uploadId())).thenReturn(Optional.of(session));
+
+        newWorker().processPendingUploads();
+
+        assertThat(session.getStatus()).isEqualTo(currentStatus);
+        assertThat(session.getAttemptCount()).isEqualTo(3);
+        assertThat(session.getClaimToken()).isEqualTo(currentToken);
+        verify(uploadSessionRepository, never()).save(any());
+        verify(s3StorageService, never()).deleteObjectQuietly(any());
+    }
+
+    /** 令牌桶故障属于系统失败，照常消耗重试次数并最终进入 DEAD。 */
+    @ParameterizedTest
+    @CsvSource({"1,PENDING", "3,DEAD"})
+    void limiterUnavailableShouldUseNormalFailurePolicy(int attempts, ResumeUploadStatus expected) throws Exception {
+        enableTransactions();
+        ResumeUploadTaskClaim claim = taskClaim(ResumeUploadType.CREATE, null, attempts);
+        ResumeUploadSession session = processingSession(claim);
+        when(taskClaimRepository.claimNext(any(UUID.class))).thenReturn(Optional.of(claim));
+        stubDownload(claim);
+        when(resumeParserService.parseResume(any(MultipartFile.class)))
+                .thenThrow(new BusinessException(ErrorCode.SYSTEM_ERROR, "LLM rate limiter is unavailable"));
+        when(uploadSessionRepository.findForUpdateById(claim.uploadId())).thenReturn(Optional.of(session));
+        newWorker().processPendingUploads();
+        assertThat(session.getStatus()).isEqualTo(expected);
+        assertThat(session.getAttemptCount()).isEqualTo(attempts);
+    }
+
     /** 旧 worker 的 claim token 已失效时不能覆盖新 worker 持有的任务状态。 */
     @Test
     void staleWorkerShouldBeBlockedByClaimToken() throws Exception {
@@ -497,12 +583,17 @@ class ResumeUploadTaskStateMachineTest {
 
     /** 模拟 worker 下载四字节 PDF 并由解析器返回已验证结果。 */
     private void stubDownloadedPdf(ResumeUploadTaskClaim claim) throws Exception {
+        stubDownload(claim);
+        when(resumeParserService.parseResume(any(MultipartFile.class))).thenReturn(new ResumeParseResult(
+                JsonNodeFactory.instance.objectNode().put("name", "Keny"), PDF_CONTENT_TYPE, ".pdf"));
+    }
+
+    /** 只模拟下载，让成功、限流和系统故障测试分别指定解析行为。 */
+    private void stubDownload(ResumeUploadTaskClaim claim) throws Exception {
         doAnswer(invocation -> {
             Files.write(invocation.getArgument(1), new byte[]{1, 2, 3, 4});
             return null;
         }).when(s3StorageService).downloadObject(eq(claim.processingObjectKey()), any());
-        when(resumeParserService.parseResume(any(MultipartFile.class))).thenReturn(new ResumeParseResult(
-                JsonNodeFactory.instance.objectNode().put("name", "Keny"), PDF_CONTENT_TYPE, ".pdf"));
     }
 
     /** 创建只处理一个任务的 worker，便于精确断言单次状态变化。 */

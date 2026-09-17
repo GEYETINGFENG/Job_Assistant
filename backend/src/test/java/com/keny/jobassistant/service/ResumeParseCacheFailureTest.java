@@ -31,6 +31,7 @@ class ResumeParseCacheFailureTest {
     @SuppressWarnings("unchecked")
     private final HashOperations<String, Object, Object> hashes = mock(HashOperations.class);
     private final TikaResumeDocumentExtractor extractor = mock(TikaResumeDocumentExtractor.class);
+    private final LlmRateLimiter limiter = mock(LlmRateLimiter.class);
     private final MockMultipartFile file = new MockMultipartFile("file", "resume.pdf", "application/pdf", new byte[]{1, 2, 3});
     private ResumeParseCacheService cache;
     private BailianResumeParserServiceImpl parser;
@@ -45,7 +46,7 @@ class ResumeParseCacheFailureTest {
         cache = new ResumeParseCacheService(redis, mapper, "test-model", "v1", Duration.ofHours(24));
         RestClient.Builder builder = RestClient.builder().baseUrl("https://llm.test");
         server = MockRestServiceServer.bindTo(builder).build();
-        parser = new BailianResumeParserServiceImpl(builder.build(), mapper, extractor, cache, "test-model", false, 30000, 4000);
+        parser = new BailianResumeParserServiceImpl(builder.build(), mapper, extractor, cache, limiter, "test-model", false, 30000, 4000);
     }
 
     @Test
@@ -53,6 +54,16 @@ class ResumeParseCacheFailureTest {
         when(values.get(anyString())).thenThrow(new RedisConnectionFailureException("test failure"));
         assertThatThrownBy(() -> parser.parseResume(file)).isInstanceOf(BusinessException.class);
         verifyNoInteractions(hashes);
+        verifyNoInteractions(limiter);
+        server.verify();
+    }
+
+    @Test
+    void limiterFailureShouldNotCallModelOrWriteCache() {
+        doThrow(new BusinessException(com.keny.jobassistant.common.ErrorCode.SYSTEM_ERROR, "LLM rate limiter is unavailable"))
+                .when(limiter).acquire();
+        assertThatThrownBy(() -> parser.parseResume(file)).isInstanceOf(BusinessException.class);
+        verify(values, never()).set(anyString(), anyString(), any(Duration.class));
         server.verify();
     }
 
