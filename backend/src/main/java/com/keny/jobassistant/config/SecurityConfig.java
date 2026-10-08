@@ -93,6 +93,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/user/register", "/user/login","/user/refresh", "/user/logout").permitAll()
                         // Swagger 和错误接口公开访问。
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**", "/error").permitAll()
+                        // 健康检查供 docker-compose / 负载均衡探活使用。
+                        .requestMatchers("/actuator/health/**", "/actuator/health").permitAll()
                         // 管理员接口仅 ADMIN 可以访问。
                         .requestMatchers("/admin/**").hasRole("ADMIN")
                         // 其他接口必须携带有效 JWT。

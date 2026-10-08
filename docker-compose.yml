@@ -1,0 +1,63 @@
+# 本地编排 app + Postgres + Redis。
+# 使用前：cp .env.example .env 并填写其中的值（.env 不进 git）。
+services:
+  postgres:
+    # 与本机开发库保持同一大版本，方便 pg_dump / 导入
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: jobassistant
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?请在 .env 中设置 DATABASE_PASSWORD}
+    volumes:
+      # postgres 18 镜像的数据目录挂载点是 /var/lib/postgresql（不再是 .../data）
+      - pgdata:/var/lib/postgresql
+    ports:
+      # 方便本机 IDE 连接；本机已有 Postgres 占用 5432 时改成 "15432:5432"
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d jobassistant"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?请在 .env 中设置 REDIS_PASSWORD}"]
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--no-auth-warning", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: ./backend
+    image: jobassistant:local
+    env_file: .env
+    environment:
+      # 容器里 localhost 是 app 自己，必须用 compose 服务名访问依赖
+      DATABASE_URL: jdbc:postgresql://postgres:5432/jobassistant
+      DATABASE_USERNAME: postgres
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "8080:8080"
+    volumes:
+      # 本地开发用自己的 AWS profile 访问 S3（只读挂载）；生产环境改用 IAM 角色
+      - ${USERPROFILE:-~}/.aws:/home/app/.aws:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/actuator/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 60s
+    stop_grace_period: 60s
+
+volumes:
+  pgdata:

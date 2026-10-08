@@ -1,3 +1,6 @@
 # IntelliJ IDEA
 .idea/
 /data
+
+# Local secrets for docker-compose
+.env
