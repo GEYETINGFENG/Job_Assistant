@@ -19,6 +19,7 @@ import com.keny.jobassistant.service.support.PathBackedMultipartFile;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.SmartLifecycle;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -34,10 +35,17 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
-/** 后台处理已经冻结并进入 PENDING 队列的简历上传任务。 */
+/**
+ * 后台处理已经冻结并进入 PENDING 队列的简历上传任务。
+ *
+ * 优雅停机：收到 SIGTERM 后 Spring 在生命周期停止阶段调用 stop(callback)，
+ * worker 立即停止领取新任务，等手上的任务处理完再通知 Spring 继续关闭。
+ * 超过 spring.lifecycle.timeout-per-shutdown-phase 仍未完成的任务会被强制中断，
+ * 由 ResumeUploadRecoveryCoordinator 按处理超时重新入队。
+ */
 @Slf4j
 @Service
-public class ResumeUploadWorker {
+public class ResumeUploadWorker implements SmartLifecycle {
 
     private static final int DEFAULT_RESUME_STATUS = 0;
     private static final int MAX_ERROR_MESSAGE_LENGTH = 512;
@@ -55,6 +63,13 @@ public class ResumeUploadWorker {
     private final int maxAttempts;
     private final long retryBaseDelaySeconds;
     private final long retryMaxDelaySeconds;
+
+    /** 保护停机状态：接单开关、处理中任务数和等待回调必须一起读写，避免停机与领取任务竞争。 */
+    private final Object lifecycleLock = new Object();
+    private boolean acceptingTasks = true;
+    private int inFlightTasks;
+    private Runnable stopCallback;
+    private volatile boolean running;
 
     public ResumeUploadWorker(ResumeUploadTaskClaimRepository taskClaimRepository,
                               ResumeUploadSessionRepository uploadSessionRepository,
@@ -88,11 +103,82 @@ public class ResumeUploadWorker {
     @Scheduled(fixedDelayString = "${app.resume.worker.fixed-delay-ms:1000}")
     public void processPendingUploads() {
         for (int index = 0; index < batchSize; index++) {
-            Optional<ResumeUploadTaskClaim> claim = claimNextTask();
-            if (claim.isEmpty()) {
+            // 每次领取前检查接单开关；停机后本轮剩余名额直接放弃，留给其他实例处理。
+            if (!tryBeginTask()) {
                 return;
             }
-            processClaimedTask(claim.get());
+            try {
+                Optional<ResumeUploadTaskClaim> claim = claimNextTask();
+                if (claim.isEmpty()) {
+                    return;
+                }
+                processClaimedTask(claim.get());
+            } finally {
+                finishTask();
+            }
+        }
+    }
+
+    @Override
+    public void start() {
+        synchronized (lifecycleLock) {
+            acceptingTasks = true;
+            running = true;
+        }
+    }
+
+    @Override
+    public void stop() {
+        synchronized (lifecycleLock) {
+            acceptingTasks = false;
+            running = false;
+        }
+    }
+
+    /** 停止接单；若仍有任务在处理，等最后一个任务结束后再回调，让 Spring 在此之前不销毁数据源等依赖。 */
+    @Override
+    public void stop(Runnable callback) {
+        synchronized (lifecycleLock) {
+            acceptingTasks = false;
+            running = false;
+            if (inFlightTasks > 0) {
+                log.info("收到停机信号，worker 停止领取新任务，等待处理中任务完成，inFlight={}", inFlightTasks);
+                stopCallback = callback;
+                return;
+            }
+        }
+        log.info("收到停机信号，worker 没有处理中任务，立即停止");
+        callback.run();
+    }
+
+    @Override
+    public boolean isRunning() {
+        return running;
+    }
+
+    /** 领取前登记处理中任务；登记和检查开关在同一把锁内，保证停机后不会再有新任务开始。 */
+    private boolean tryBeginTask() {
+        synchronized (lifecycleLock) {
+            if (!acceptingTasks) {
+                return false;
+            }
+            inFlightTasks++;
+            return true;
+        }
+    }
+
+    private void finishTask() {
+        Runnable callback = null;
+        synchronized (lifecycleLock) {
+            inFlightTasks--;
+            if (inFlightTasks == 0 && stopCallback != null) {
+                callback = stopCallback;
+                stopCallback = null;
+            }
+        }
+        if (callback != null) {
+            log.info("处理中任务已全部完成，worker 已安全停止");
+            callback.run();
         }
     }
 

@@ -43,9 +43,15 @@ spring:
         # worker 和恢复任务使用不同调度线程，避免慢解析阻塞故障恢复。
         size: 2
       thread-name-prefix: resume-scheduler-
+  lifecycle:
+    # 停机时每个阶段最多等待 50 秒（worker 跑完手上的任务、Web 处理完进行中的请求）。
+    # 必须小于编排器的强杀时限：docker-compose stop_grace_period 60s / ECS stopTimeout。
+    timeout-per-shutdown-phase: 50s
 
 server:
   port: 8080
+  # 收到 SIGTERM 后不再接收新请求，等进行中的请求处理完再关闭。
+  shutdown: graceful
   servlet:
     context-path: /api
 

@@ -53,6 +53,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -480,6 +482,48 @@ class ResumeUploadTaskStateMachineTest {
         verifyNoInteractions(resumeVersionAtomicRepository);
     }
 
+    /** 停机后 worker 不能再领取任务，没有处理中任务时立即通知 Spring 继续关闭。 */
+    @Test
+    void stoppedWorkerShouldNotClaimNewTasks() {
+        ResumeUploadWorker worker = newWorker();
+        worker.start();
+        AtomicBoolean stopped = new AtomicBoolean();
+
+        worker.stop(() -> stopped.set(true));
+        worker.processPendingUploads();
+
+        assertThat(stopped).isTrue();
+        assertThat(worker.isRunning()).isFalse();
+        verifyNoInteractions(taskClaimRepository);
+    }
+
+    /** 处理中收到停机信号：当前任务必须跑完并写入 COMPLETED，之后才回调，且本轮不再领取新任务。 */
+    @Test
+    void stopDuringProcessingShouldFinishCurrentTaskBeforeCallback() throws Exception {
+        enableTransactions();
+        ResumeUploadTaskClaim claim = taskClaim(ResumeUploadType.NEW_VERSION, 55L, 1);
+        ResumeUploadSession session = processingSession(claim);
+        when(taskClaimRepository.claimNext(any(UUID.class))).thenReturn(Optional.of(claim));
+        stubDownload(claim);
+        when(uploadSessionRepository.findForUpdateById(claim.uploadId())).thenReturn(Optional.of(session));
+        when(resumeVersionAtomicRepository.createNextVersion(eq(55L), eq(USER_ID), eq("Backend Resume"),
+                eq("/resumes/55/file"), any())).thenReturn(Optional.of(4));
+        ResumeUploadWorker worker = newWorker(3);
+        worker.start();
+        AtomicReference<ResumeUploadStatus> statusAtCallback = new AtomicReference<>();
+        // 模拟 SIGTERM 恰好在调用 LLM 解析期间到达。
+        when(resumeParserService.parseResume(any(MultipartFile.class))).thenAnswer(invocation -> {
+            worker.stop(() -> statusAtCallback.set(session.getStatus()));
+            return new ResumeParseResult(JsonNodeFactory.instance.objectNode().put("name", "Keny"), PDF_CONTENT_TYPE, ".pdf");
+        });
+
+        worker.processPendingUploads();
+
+        assertThat(session.getStatus()).isEqualTo(ResumeUploadStatus.COMPLETED);
+        assertThat(statusAtCallback).hasValue(ResumeUploadStatus.COMPLETED);
+        verify(taskClaimRepository, times(1)).claimNext(any(UUID.class));
+    }
+
     /** 已复制但未入队的对象必须由协调器恢复为 PENDING。 */
     @Test
     void recoveryShouldQueueInterruptedFrozenCopy() {
@@ -598,9 +642,13 @@ class ResumeUploadTaskStateMachineTest {
 
     /** 创建只处理一个任务的 worker，便于精确断言单次状态变化。 */
     private ResumeUploadWorker newWorker() {
+        return newWorker(1);
+    }
+
+    private ResumeUploadWorker newWorker(int batchSize) {
         return new ResumeUploadWorker(taskClaimRepository, uploadSessionRepository, s3StorageService,
                 resumeParserService, resumeRepository, resumeVersionAtomicRepository, userRepository,
-                transactionManager, "resumes", 1, 3, 30, 600);
+                transactionManager, "resumes", batchSize, 3, 30, 600);
     }
 
     /** 创建使用短超时配置的恢复协调器。 */
