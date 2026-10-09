@@ -2,6 +2,8 @@ package com.keny.jobassistant.service.impl;
 import com.keny.jobassistant.common.ErrorCode;
 import com.keny.jobassistant.exception.BusinessException;
 import com.keny.jobassistant.model.dto.ResumeDTO;
+import com.keny.jobassistant.model.dto.ResumeListDTO;
+import com.keny.jobassistant.model.dto.ResumeSummaryDTO;
 import com.keny.jobassistant.model.dto.ResumeVersionDTO;
 import com.keny.jobassistant.model.dto.ResumeVersionSummaryDTO;
 import com.keny.jobassistant.model.entity.Resume;
@@ -13,6 +15,8 @@ import com.keny.jobassistant.security.CurrentUserProvider;
 import com.keny.jobassistant.service.ResumeService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Slice;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +34,9 @@ import java.util.List;
 @Service
 @Slf4j
 public class ResumeServiceImpl implements ResumeService {
+    /** 单页上限，防止客户端一次拉取过多数据。 */
+    private static final int MAX_PAGE_SIZE = 50;
+
     private final ResumeRepository resumeRepository;
     private final ResumeVersionRepository resumeVersionRepository;
     private final CurrentUserProvider currentUserProvider;
@@ -58,6 +65,25 @@ public class ResumeServiceImpl implements ResumeService {
                 .findByIdAndUser_IdAndIsDelete(resumeId, currentUserId, Resume.NOT_DELETED)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RESOURCE_NOT_FOUND));
         return toResumeDTO(resume);
+    }
+
+    /**
+     * 分页查询当前用户的简历摘要。
+     * userId 只从 JWT 获取，客户端只能翻页，不能指定查询谁的简历。
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public ResumeListDTO listResumes(int page, int size) {
+        if (page < 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Page must not be negative");
+        }
+        if (size < 1 || size > MAX_PAGE_SIZE) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Page size must be between 1 and " + MAX_PAGE_SIZE);
+        }
+        Long currentUserId = currentUserProvider.getCurrentUserId();
+        Slice<ResumeSummaryDTO> slice = resumeRepository.findActiveSummariesByUserId(
+                currentUserId, PageRequest.of(page, size));
+        return new ResumeListDTO(slice.getContent(), page, size, slice.hasNext());
     }
 
     /**

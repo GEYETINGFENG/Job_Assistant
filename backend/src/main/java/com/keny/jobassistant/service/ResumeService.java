@@ -1,5 +1,6 @@
 package com.keny.jobassistant.service;
 import com.keny.jobassistant.model.dto.ResumeDTO;
+import com.keny.jobassistant.model.dto.ResumeListDTO;
 import com.keny.jobassistant.model.dto.ResumeVersionDTO;
 import com.keny.jobassistant.model.dto.ResumeVersionSummaryDTO;
 import com.keny.jobassistant.model.entity.request.ResumeUpdateRequest;
@@ -16,6 +17,13 @@ public interface ResumeService {
      * @return 简历信息
      */
     ResumeDTO getResume(Long resumeId);
+
+    /**
+     * 分页查询当前登录用户的简历摘要，按最近更新时间倒序。
+     * @param page 页码，从 0 开始
+     * @param size 每页条数
+     */
+    ResumeListDTO listResumes(int page, int size);
 
     /**
      * 查询指定简历的全部历史版本。

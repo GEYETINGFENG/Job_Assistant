@@ -41,6 +41,8 @@ services:
       DATABASE_USERNAME: postgres
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      # 容器里输出结构化 JSON 日志；IDEA 本地运行仍是普通文本日志
+      SPRING_PROFILES_ACTIVE: json-log
     ports:
       - "8080:8080"
     volumes:

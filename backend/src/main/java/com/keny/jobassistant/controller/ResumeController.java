@@ -4,6 +4,7 @@ import com.keny.jobassistant.common.ErrorCode;
 import com.keny.jobassistant.common.ResultUtils;
 import com.keny.jobassistant.exception.BusinessException;
 import com.keny.jobassistant.model.dto.ResumeDTO;
+import com.keny.jobassistant.model.dto.ResumeListDTO;
 import com.keny.jobassistant.model.dto.ResumeVersionDTO;
 import com.keny.jobassistant.model.dto.ResumeVersionSummaryDTO;
 import com.keny.jobassistant.model.entity.request.ResumeUpdateRequest;
@@ -31,6 +32,15 @@ public class ResumeController {
     public ResumeController(ResumeService resumeService,ResumeS3UploadService resumeS3UploadService) {
         this.resumeService = resumeService;
         this.resumeS3UploadService = resumeS3UploadService;
+    }
+
+    /**
+     * 分页查询当前登录用户的简历列表，按最近更新时间倒序。
+     */
+    @GetMapping
+    public BaseResponse<ResumeListDTO> listResumes(@RequestParam(defaultValue = "0") int page,
+                                                   @RequestParam(defaultValue = "20") int size) {
+        return ResultUtils.success(resumeService.listResumes(page, size));
     }
 
     /**

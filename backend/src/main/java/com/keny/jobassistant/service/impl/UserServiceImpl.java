@@ -117,6 +117,7 @@ public class UserServiceImpl implements UserService {
         }
         // 被禁用的用户不允许登录。
         if (user.getUserStatus() != null && user.getUserStatus() != NORMAL_USER_STATUS) {
+            log.info("User login rejected: account disabled, userId={}", user.getId());
             throw new BusinessException(ErrorCode.NO_AUTH, "User account is disabled");
         }
 
@@ -124,6 +125,8 @@ public class UserServiceImpl implements UserService {
         String accessToken = jwtTokenService.generateAccessToken(user);
         // 生成长期 Refresh Token，并将哈希保存到数据库。
         String refreshToken = refreshTokenService.createRefreshToken(user);
+        // 安全审计：登录成功只记录 userId，不记录密码和任何 token。
+        log.info("User login succeeded, userId={}", user.getId());
 
         // 返回 JWT 和脱敏后的用户信息。
         return UserLoginVO.builder()

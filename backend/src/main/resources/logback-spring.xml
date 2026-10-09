@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <springProperty name="appName" source="spring.application.name" defaultValue="JobAssistant"/>
+
+    <!-- 容器 / 线上：激活 json-log profile，每行输出一个 JSON 对象，方便日志平台按字段检索。 -->
+    <springProfile name="json-log">
+        <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <customFields>{"app":"${appName}"}</customFields>
+                <!-- MDC 中的 requestId / userId 等字段会自动成为 JSON 字段。 -->
+                <throwableConverter class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
+                    <maxDepthPerThrowable>30</maxDepthPerThrowable>
+                    <rootCauseFirst>true</rootCauseFirst>
+                </throwableConverter>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="JSON_CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <!-- 本地 IDE：保持 Spring Boot 默认的彩色文本日志，便于人眼阅读。 -->
+    <springProfile name="!json-log">
+        <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+</configuration>

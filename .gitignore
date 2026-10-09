@@ -4,3 +4,7 @@
 
 # Local secrets for docker-compose
 .env
+
+# k6 raw results (numbers are summarized in docs/)
+loadtest/results/
+__pycache__/

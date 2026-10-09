@@ -95,6 +95,8 @@ public class SecurityConfig {
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**", "/error").permitAll()
                         // 健康检查供 docker-compose / 负载均衡探活使用。
                         .requestMatchers("/actuator/health/**", "/actuator/health").permitAll()
+                        // Prometheus 抓取不带 JWT；线上通过网络隔离（只放行内网抓取）保护该端点。
+                        .requestMatchers("/actuator/prometheus").permitAll()
                         // 管理员接口仅 ADMIN 可以访问。
                         .requestMatchers("/admin/**").hasRole("ADMIN")
                         // 其他接口必须携带有效 JWT。
