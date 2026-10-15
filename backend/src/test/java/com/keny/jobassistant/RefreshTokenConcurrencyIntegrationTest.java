@@ -5,6 +5,7 @@ import com.keny.jobassistant.model.vo.UserLoginVO;
 import com.keny.jobassistant.service.UserService;
 import jakarta.annotation.Resource;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,6 +36,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
+@Tag("integration")
 class RefreshTokenConcurrencyIntegrationTest {
 
     //模拟发送 HTTP 请求

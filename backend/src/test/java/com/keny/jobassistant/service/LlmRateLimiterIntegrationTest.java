@@ -30,6 +30,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 /** 在独享 Redis 容器内验证实际 Lua、独立客户端和模型请求的组合行为。 */
 @Testcontainers
+@Tag("integration")
 class LlmRateLimiterIntegrationTest {
     @Container
     static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7.4-alpine").withExposedPorts(6379);

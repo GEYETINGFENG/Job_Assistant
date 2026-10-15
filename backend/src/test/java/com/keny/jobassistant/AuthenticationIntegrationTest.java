@@ -6,6 +6,7 @@ import com.keny.jobassistant.repository.UserRepository;
 import com.keny.jobassistant.service.JwtTokenService;
 import com.keny.jobassistant.service.UserService;
 import jakarta.annotation.Resource;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -42,6 +43,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 @Import(TestcontainersConfiguration.class)
 @Transactional
+@Tag("integration")
 class AuthenticationIntegrationTest {
 
     // 模拟 HTTP 请求，不需要真正启动 8080 端口

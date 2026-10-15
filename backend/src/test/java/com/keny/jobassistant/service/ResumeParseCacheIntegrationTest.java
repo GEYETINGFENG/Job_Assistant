@@ -34,6 +34,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 /** 使用真实 Redis、真实 Tika 和模拟 HTTP 响应，不访问百炼付费接口。 */
 @Testcontainers
+@Tag("integration")
 class ResumeParseCacheIntegrationTest {
     @Container
     static final GenericContainer<?> REDIS = new GenericContainer<>(DockerImageName.parse("redis:7.4-alpine")).withExposedPorts(6379);

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.keny.jobassistant.repository.ResumeVersionAtomicRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -48,6 +49,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @Import(ResumeVersionAtomicRepository.class)
 @Testcontainers
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
+@Tag("integration")
 class ResumeVersionConcurrencyTest {
 
     /**

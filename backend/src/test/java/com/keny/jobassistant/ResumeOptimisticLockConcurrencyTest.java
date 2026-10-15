@@ -3,6 +3,7 @@ package com.keny.jobassistant;
 import com.keny.jobassistant.model.entity.Resume;
 import com.keny.jobassistant.repository.ResumeRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -39,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Testcontainers
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
+@Tag("integration")
 class ResumeOptimisticLockConcurrencyTest {
 
     @Container

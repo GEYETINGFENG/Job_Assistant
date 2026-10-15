@@ -2,6 +2,7 @@ package com.keny.jobassistant.repository;
 
 import com.keny.jobassistant.model.task.ResumeUploadTaskClaim;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -35,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Import(ResumeUploadTaskClaimRepository.class)
 @Testcontainers
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
+@Tag("integration")
 class ResumeUploadTaskClaimRepositoryTest {
 
     @Container
