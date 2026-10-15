@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 只需要读取代码；测试不使用任何仓库 secrets（application-test.yml + mock / Testcontainers）。
+permissions:
+  contents: read
+
+# 同一分支有新的推送时，取消还在运行的旧流水线。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          # 按 pom.xml 内容缓存 ~/.m2/repository，依赖不变时不用重新下载。
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+
+      # 只跑单元测试（surefire 排除 @Tag("integration")），不需要 Docker。
+      - name: Run unit tests
+        run: ./mvnw -B -ntp test
+
+      - name: Upload unit test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: backend/target/surefire-reports/
+
+  integration:
+    name: Integration tests
+    # 单元测试失败时不再启动容器，尽快给出失败结果。
+    needs: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+
+      # failsafe 跑 @Tag("integration") 的测试；Testcontainers 使用 runner 自带的 Docker。
+      # 单元测试已在上一个 job 通过，这里跳过避免重复执行。
+      - name: Run integration tests
+        run: ./mvnw -B -ntp verify -DskipUnitTests
+
+      - name: Upload integration test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-reports
+          path: backend/target/failsafe-reports/

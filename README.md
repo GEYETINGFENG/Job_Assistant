@@ -1,5 +1,7 @@
 # Job Assistant
 
+[![CI](https://github.com/GEYETINGFENG/Job_Assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/GEYETINGFENG/Job_Assistant/actions/workflows/ci.yml)
+
 An AI-powered job assistant system built with **Spring Boot** and **LLM technologies**, designed to help users improve their job search process through intelligent resume analysis and job matching.
 
 ## Features
@@ -17,20 +19,45 @@ Redis 简历解析缓存的环境配置和手工验收步骤见 [Apifox 验收�
 ## Tech Stack
 
 ### Backend
-- Java 21
-- Spring Boot 3
-- Spring AI
-- MyBatis Plus
+- Java 17
+- Spring Boot 3.3 (Web, Validation, Actuator)
+- Spring Data JPA (Hibernate) + Flyway migrations
+- Spring Security + OAuth2 Resource Server (JWT access tokens, rotating refresh tokens)
+- Apache Tika (PDF / DOCX text extraction with zip-bomb limits)
 - Maven
 
 ### Database & Storage
-- MySQL
-- Redis
+- PostgreSQL (JSONB for parsed resumes)
+- Redis (resume parse cache, global LLM token-bucket rate limiter)
+- Amazon S3 (presigned uploads, resume file storage)
 
 ### AI
-- Large Language Model API
-- Prompt Engineering
-- Structured Data Extraction
+- Alibaba Cloud Bailian (DashScope, OpenAI-compatible API) via Spring `RestClient`
+- Prompt engineering for structured resume extraction, with JSON validation
+
+### Frontend
+- Vue 3 + Vite
+- Pinia, Vue Router, Axios
+
+### Engineering
+- Testing: JUnit 5, Mockito, Testcontainers (PostgreSQL / Redis)
+- CI: GitHub Actions (unit tests, then integration tests)
+- Observability: Micrometer + Prometheus metrics, structured JSON logs with request IDs
+- Deployment: Docker (multi-stage, non-root) + docker-compose
+- Load testing: k6 (see [performance report](docs/performance-report.md))
+
+## Running Tests
+
+Tests are split into fast unit tests and slower integration tests (run from `backend/`):
+
+| Command | What runs | Needs Docker |
+|---|---|---|
+| `./mvnw test` | Unit tests only (Mockito, no containers), a few seconds | No |
+| `./mvnw verify` | Unit tests, then integration tests tagged `@Tag("integration")` (Testcontainers PostgreSQL / Redis, full Spring context) | Yes |
+
+New tests that need a real database, Redis or the full application context must be annotated with `@Tag("integration")`; everything else should stay a plain unit test.
+
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the same split on every push to `main` and every pull request: the `Unit tests` job runs first, and `Integration tests` starts only after it passes. Maven dependencies are cached between runs, and no repository secrets are required.
 
 ## Security Design
 
