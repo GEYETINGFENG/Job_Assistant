@@ -1,5 +1,6 @@
 package com.keny.jobassistant.model.entity;
 
+import com.keny.jobassistant.model.enums.ApplicationStatus;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -38,9 +39,20 @@ public class Application {
     @JoinColumn(name = "resume_version_id")
     private ResumeVersion resumeVersion;
 
-    @Column(name = "status")
-    private Integer status = 0;
+    /**
+     * 状态只能通过 ApplicationService 的条件更新修改，
+     * 合法转移由 ApplicationStatus 的转移表决定。
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false, length = 32)
+    private ApplicationStatus status = ApplicationStatus.APPLIED;
 
     @Column(name = "apply_time")
     private LocalDateTime applyTime;
+
+    /**
+     * 最近一次状态变化的时间。
+     */
+    @Column(name = "update_time", nullable = false)
+    private LocalDateTime updateTime;
 }

@@ -3,12 +3,18 @@ package com.keny.jobassistant.service.impl;
 import com.keny.jobassistant.common.ErrorCode;
 import com.keny.jobassistant.exception.BusinessException;
 import com.keny.jobassistant.model.dto.ApplicationDTO;
+import com.keny.jobassistant.model.dto.ApplicationEventDTO;
+import com.keny.jobassistant.model.dto.ApplicationEventPageDTO;
 import com.keny.jobassistant.model.entity.Application;
+import com.keny.jobassistant.model.entity.ApplicationEvent;
 import com.keny.jobassistant.model.entity.Job;
 import com.keny.jobassistant.model.entity.Resume;
 import com.keny.jobassistant.model.entity.ResumeVersion;
 import com.keny.jobassistant.model.entity.User;
 import com.keny.jobassistant.model.entity.request.ApplicationCreateRequest;
+import com.keny.jobassistant.model.entity.request.ApplicationStatusUpdateRequest;
+import com.keny.jobassistant.model.enums.ApplicationStatus;
+import com.keny.jobassistant.repository.ApplicationEventRepository;
 import com.keny.jobassistant.repository.ApplicationRepository;
 import com.keny.jobassistant.repository.JobRepository;
 import com.keny.jobassistant.repository.ResumeVersionRepository;
@@ -16,6 +22,7 @@ import com.keny.jobassistant.repository.UserRepository;
 import com.keny.jobassistant.security.CurrentUserProvider;
 import com.keny.jobassistant.service.ApplicationService;
 import jakarta.annotation.Resource;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,8 +32,14 @@ import java.util.List;
 @Service
 public class ApplicationServiceImpl implements ApplicationService {
 
+    private static final int MAX_EVENT_PAGE_SIZE = 100;
+    private static final int MAX_NOTE_LENGTH = 512;
+
     @Resource
     private ApplicationRepository applicationRepository;
+
+    @Resource
+    private ApplicationEventRepository applicationEventRepository;
 
     @Resource
     private ResumeVersionRepository resumeVersionRepository;
@@ -78,9 +91,13 @@ public class ApplicationServiceImpl implements ApplicationService {
         application.setUser(user);
         application.setJob(job);
         application.setResumeVersion(resumeVersion);
-        application.setStatus(0);
-        application.setApplyTime(LocalDateTime.now());
+        LocalDateTime now = LocalDateTime.now();
+        application.setStatus(ApplicationStatus.APPLIED);
+        application.setApplyTime(now);
+        application.setUpdateTime(now);
         Application savedApplication = applicationRepository.save(application);
+        // 创建本身也是一次状态变化：历史从 null -> APPLIED 开始。
+        recordEvent(savedApplication, null, ApplicationStatus.APPLIED, currentUserId, null, now);
         return toApplicationDTO(savedApplication);
     }
 
@@ -116,6 +133,105 @@ public class ApplicationServiceImpl implements ApplicationService {
     }
 
     /**
+     * 修改申请状态，状态更新和事件记录在同一个事务中。
+     * 1. 应用层先查转移表，非法转移直接拒绝，不访问数据库；
+     * 2. 条件更新 WHERE status = fromStatus，由数据库原子地判断前提条件；
+     *    两个请求基于同一个旧状态并发修改时，只有一个能匹配到这一行。
+     */
+    @Override
+    @Transactional
+    public ApplicationDTO updateStatus(Long applicationId, ApplicationStatusUpdateRequest request) {
+        if (applicationId == null || applicationId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        if (request == null || request.getFromStatus() == null || request.getToStatus() == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "fromStatus and toStatus are required");
+        }
+        if (request.getNote() != null && request.getNote().length() > MAX_NOTE_LENGTH) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Note must not exceed " + MAX_NOTE_LENGTH + " characters");
+        }
+        ApplicationStatus fromStatus = request.getFromStatus();
+        ApplicationStatus toStatus = request.getToStatus();
+        if (!fromStatus.canTransitionTo(toStatus)) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS_TRANSITION,
+                    "Cannot change application status from " + fromStatus + " to " + toStatus);
+        }
+
+        Long currentUserId = currentUserProvider.getCurrentUserId();
+        LocalDateTime now = LocalDateTime.now();
+        int updatedRows = applicationRepository.transitionStatus(applicationId, currentUserId, fromStatus, toStatus, now);
+        if (updatedRows == 0) {
+            // 区分“不存在 / 不属于当前用户”和“状态已经被别人改掉”。
+            if (!applicationRepository.existsByIdAndUser_Id(applicationId, currentUserId)) {
+                throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
+            }
+            throw new BusinessException(ErrorCode.APPLICATION_STATUS_CONFLICT,
+                    "Application status is no longer " + fromStatus + ", reload and try again");
+        }
+        recordEvent(applicationRepository.getReferenceById(applicationId),
+                fromStatus, toStatus, currentUserId, request.getNote(), now);
+        return getApplication(applicationId);
+    }
+
+    /**
+     * 游标分页：WHERE id < cursor ORDER BY id DESC LIMIT size + 1。
+     * 多取一条用于判断是否还有下一页，不需要 count(*)。
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public ApplicationEventPageDTO listEvents(Long applicationId, Long cursor, int size) {
+        if (applicationId == null || applicationId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        if (cursor != null && cursor <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Cursor must be positive");
+        }
+        if (size < 1 || size > MAX_EVENT_PAGE_SIZE) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "Page size must be between 1 and " + MAX_EVENT_PAGE_SIZE);
+        }
+        Long currentUserId = currentUserProvider.getCurrentUserId();
+        if (!applicationRepository.existsByIdAndUser_Id(applicationId, currentUserId)) {
+            throw new BusinessException(ErrorCode.RESOURCE_NOT_FOUND);
+        }
+
+        PageRequest limit = PageRequest.of(0, size + 1);
+        List<ApplicationEvent> events = cursor == null
+                ? applicationEventRepository.findByApplication_IdOrderByIdDesc(applicationId, limit)
+                : applicationEventRepository.findByApplication_IdAndIdLessThanOrderByIdDesc(applicationId, cursor, limit);
+
+        boolean hasNext = events.size() > size;
+        List<ApplicationEventDTO> items = events.stream()
+                .limit(size)
+                .map(this::toApplicationEventDTO)
+                .toList();
+        Long nextCursor = hasNext ? items.get(items.size() - 1).getId() : null;
+        return new ApplicationEventPageDTO(items, nextCursor, hasNext);
+    }
+
+    private void recordEvent(Application application, ApplicationStatus fromStatus, ApplicationStatus toStatus,
+                             Long operatorUserId, String note, LocalDateTime createTime) {
+        ApplicationEvent event = new ApplicationEvent();
+        event.setApplication(application);
+        event.setFromStatus(fromStatus);
+        event.setToStatus(toStatus);
+        event.setOperatorUserId(operatorUserId);
+        event.setNote(note);
+        event.setCreateTime(createTime);
+        applicationEventRepository.save(event);
+    }
+
+    private ApplicationEventDTO toApplicationEventDTO(ApplicationEvent event) {
+        ApplicationEventDTO dto = new ApplicationEventDTO();
+        dto.setId(event.getId());
+        dto.setFromStatus(event.getFromStatus());
+        dto.setToStatus(event.getToStatus());
+        dto.setOperatorUserId(event.getOperatorUserId());
+        dto.setNote(event.getNote());
+        dto.setCreateTime(event.getCreateTime());
+        return dto;
+    }
+
+    /**
      * Entity 转 DTO。
      * 旧 Application 的 resumeVersion 可能为 NULL
      * 因为数据库迁移前没有保存 ResumeVersion。
@@ -125,7 +241,9 @@ public class ApplicationServiceImpl implements ApplicationService {
         dto.setId(application.getId());
         dto.setJobId(application.getJob().getId());
         dto.setStatus(application.getStatus());
+        dto.setAllowedNextStatuses(application.getStatus().allowedNext());
         dto.setApplyTime(application.getApplyTime());
+        dto.setUpdateTime(application.getUpdateTime());
         Job job = application.getJob();
         if (job != null) {
             dto.setCompanyName(job.getCompanyName());

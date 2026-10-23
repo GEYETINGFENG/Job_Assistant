@@ -13,6 +13,8 @@ public enum ErrorCode {
     SUCCESS(0, HttpStatus.OK, "ok", ""),
     PARAMS_ERROR(40000, HttpStatus.BAD_REQUEST, "Invalid request parameters", ""),
     NULL_ERROR(40001, HttpStatus.BAD_REQUEST, "Request data cannot be null", ""),
+    // 请求的状态转移不在 ApplicationStatus 转移表中，例如 OFFER -> APPLIED。
+    INVALID_STATUS_TRANSITION(40002, HttpStatus.BAD_REQUEST, "Invalid status transition", ""),
     NOT_LOGIN(40100, HttpStatus.UNAUTHORIZED, "Unauthenticated", ""),
     INVALID_CREDENTIALS(40101, HttpStatus.UNAUTHORIZED, "User account or password is incorrect", ""),
     NO_AUTH(40300, HttpStatus.FORBIDDEN, "Forbidden", ""),
@@ -20,6 +22,8 @@ public enum ErrorCode {
     ACCOUNT_CONFLICT(40900, HttpStatus.CONFLICT, "User account already exists", ""),
     // 上传任务已经进入终态，或冻结文件时检测到并发修改。
     UPLOAD_CONFLICT(40901, HttpStatus.CONFLICT, "Upload state conflict", ""),
+    // 申请状态已经被其他请求修改，客户端基于的 fromStatus 已过期。
+    APPLICATION_STATUS_CONFLICT(40902, HttpStatus.CONFLICT, "Application status conflict", ""),
     SYSTEM_ERROR(50000, HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error", ""),
     OPTIMISTIC_LOCK_CONFLICT(40900,HttpStatus.CONFLICT, "Concurrent update conflict", "The resource has been modified by another request");
 
