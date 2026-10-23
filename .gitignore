@@ -8,3 +8,6 @@
 # k6 raw results (numbers are summarized in docs/)
 loadtest/results/
 __pycache__/
+
+# macOS
+.DS_Store
