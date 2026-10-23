@@ -5,7 +5,9 @@ import com.keny.jobassistant.common.ErrorCode;
 import com.keny.jobassistant.common.ResultUtils;
 import com.keny.jobassistant.exception.BusinessException;
 import com.keny.jobassistant.model.dto.ApplicationDTO;
+import com.keny.jobassistant.model.dto.ApplicationEventPageDTO;
 import com.keny.jobassistant.model.entity.request.ApplicationCreateRequest;
+import com.keny.jobassistant.model.entity.request.ApplicationStatusUpdateRequest;
 import com.keny.jobassistant.service.ApplicationService;
 import com.keny.jobassistant.service.ResumeS3UploadService;
 import jakarta.annotation.Resource;
@@ -49,6 +51,27 @@ public class ApplicationController {
     @GetMapping
     public BaseResponse<List<ApplicationDTO>> listApplications() {
         return ResultUtils.success(applicationService.listApplications());
+    }
+
+    /**
+     * 修改 Application 状态。
+     * 非法转移返回 400；状态已被其他请求修改（fromStatus 过期）返回 409。
+     */
+    @PatchMapping("/{id}")
+    public BaseResponse<ApplicationDTO> updateApplicationStatus(@PathVariable Long id,
+                                                                @RequestBody ApplicationStatusUpdateRequest request) {
+        return ResultUtils.success(applicationService.updateStatus(id, request));
+    }
+
+    /**
+     * 游标分页查询 Application 状态变更历史，最新的在前。
+     * 第一页不传 cursor，之后传上一页返回的 nextCursor。
+     */
+    @GetMapping("/{id}/events")
+    public BaseResponse<ApplicationEventPageDTO> listApplicationEvents(@PathVariable Long id,
+                                                                       @RequestParam(required = false) Long cursor,
+                                                                       @RequestParam(defaultValue = "20") int size) {
+        return ResultUtils.success(applicationService.listEvents(id, cursor, size));
     }
 
     /**
