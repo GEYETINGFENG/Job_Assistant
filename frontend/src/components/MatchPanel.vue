@@ -206,6 +206,23 @@ onBeforeUnmount(() => controller?.abort());
       <button class="secondary-button" type="button" @click="handleCheckAgain">Check again</button>
     </div>
 
+    <!-- 还没有结果时说明能得到什么，而不是留一大块空白。 -->
+    <section v-else-if="phase === 'idle' && resumes.length" class="placeholder">
+      <div class="score score-empty" aria-hidden="true">
+        <svg viewBox="0 0 120 120">
+          <circle class="ring-track" cx="60" cy="60" :r="RING_RADIUS" />
+        </svg>
+        <span class="score-value">–</span>
+      </div>
+      <h3>See how this resume measures up</h3>
+      <p>Pick a resume and run a match. You'll get a score, the skills you match and miss, and evidence from your resume for each requirement.</p>
+      <ol class="steps">
+        <li><span>1</span>Save or select a job on the left.</li>
+        <li><span>2</span>Choose the resume and version to compare.</li>
+        <li><span>3</span>Run the match and review each requirement.</li>
+      </ol>
+    </section>
+
     <section v-else-if="phase === 'completed' && match" class="result">
       <div class="score-row">
         <div class="score" :class="scoreClass" role="img" :aria-label="`Match score ${match.score} out of 100`">
@@ -379,6 +396,75 @@ onBeforeUnmount(() => controller?.abort());
   line-height: 1.45;
   background: var(--warning-soft);
   border-radius: var(--radius-control);
+}
+
+/* ---------- 空状态 ---------- */
+
+.placeholder {
+  display: grid;
+  justify-items: center;
+  margin-top: 28px;
+  padding: 36px 8px 8px;
+  text-align: center;
+  border-top: 1px solid var(--separator);
+}
+
+.score-empty .score-value {
+  color: var(--text-tertiary);
+}
+
+.placeholder h3 {
+  margin: 20px 0 0;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.placeholder p {
+  max-width: 420px;
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.steps {
+  width: 100%;
+  max-width: 420px;
+  display: grid;
+  gap: 0;
+  margin: 28px 0 0;
+  padding: 0;
+  overflow: hidden;
+  text-align: left;
+  list-style: none;
+  background: var(--surface-muted);
+  border-radius: var(--radius-control);
+}
+
+.steps li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 16px;
+  font-size: 14px;
+}
+
+.steps li + li {
+  border-top: 1px solid var(--separator);
+}
+
+.steps span {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--accent-soft);
+  border-radius: 50%;
 }
 
 /* ---------- 技能、差距、建议 ---------- */

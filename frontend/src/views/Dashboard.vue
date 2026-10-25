@@ -207,14 +207,54 @@ async function handleLogout() {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.35fr);
     grid-template-areas: "resumes jobs match";
   }
+}
 
-  /* 匹配结果是主要输出：滚动时停在导航栏下方，内容超过一屏时在卡片内滚动。 */
-  .column-match {
-    position: sticky;
-    top: 72px;
-    max-height: calc(100vh - 92px);
+/*
+ * 宽且够高的屏幕：像 Mac 上的邮件 / 备忘录一样做成填满一屏的工作台。
+ * 三栏等高，每栏最后一张卡片拉伸到底部，内容超出时在卡片内滚动，页面本身不再滚动、也不会有参差不齐的空白。
+ * 屏幕太矮（例如 1366×768 的笔记本）时简历列表只剩两三行，太挤，所以回到普通的整页滚动。
+ */
+@media (min-width: 1280px) and (min-height: 820px) {
+  .dashboard-page {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .content {
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 24px;
+  }
+
+  .hero {
+    padding: 28px 0 20px;
+  }
+
+  .workspace {
+    flex: 1;
+    min-height: 0;
+    align-items: stretch;
+  }
+
+  .column {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .column > :deep(.panel) {
+    flex: none;
+  }
+
+  .column > :deep(.panel:last-child) {
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
-    border-radius: var(--radius-card);
     scrollbar-width: thin;
   }
 }
