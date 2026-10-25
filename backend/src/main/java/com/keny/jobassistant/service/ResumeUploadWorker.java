@@ -16,6 +16,7 @@ import com.keny.jobassistant.repository.ResumeUploadTaskClaimRepository;
 import com.keny.jobassistant.repository.ResumeVersionAtomicRepository;
 import com.keny.jobassistant.repository.UserRepository;
 import com.keny.jobassistant.service.support.PathBackedMultipartFile;
+import com.keny.jobassistant.service.support.TaskLifecycleGate;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
@@ -64,12 +65,8 @@ public class ResumeUploadWorker implements SmartLifecycle {
     private final long retryBaseDelaySeconds;
     private final long retryMaxDelaySeconds;
 
-    /** 保护停机状态：接单开关、处理中任务数和等待回调必须一起读写，避免停机与领取任务竞争。 */
-    private final Object lifecycleLock = new Object();
-    private boolean acceptingTasks = true;
-    private int inFlightTasks;
-    private Runnable stopCallback;
-    private volatile boolean running;
+    /** 优雅停机：停止接单、等处理中任务完成后再通知 Spring。 */
+    private final TaskLifecycleGate lifecycleGate = new TaskLifecycleGate("简历上传 worker");
 
     public ResumeUploadWorker(ResumeUploadTaskClaimRepository taskClaimRepository,
                               ResumeUploadSessionRepository uploadSessionRepository,
@@ -104,7 +101,7 @@ public class ResumeUploadWorker implements SmartLifecycle {
     public void processPendingUploads() {
         for (int index = 0; index < batchSize; index++) {
             // 每次领取前检查接单开关；停机后本轮剩余名额直接放弃，留给其他实例处理。
-            if (!tryBeginTask()) {
+            if (!lifecycleGate.tryBeginTask()) {
                 return;
             }
             try {
@@ -114,72 +111,29 @@ public class ResumeUploadWorker implements SmartLifecycle {
                 }
                 processClaimedTask(claim.get());
             } finally {
-                finishTask();
+                lifecycleGate.finishTask();
             }
         }
     }
 
     @Override
     public void start() {
-        synchronized (lifecycleLock) {
-            acceptingTasks = true;
-            running = true;
-        }
+        lifecycleGate.start();
     }
 
     @Override
     public void stop() {
-        synchronized (lifecycleLock) {
-            acceptingTasks = false;
-            running = false;
-        }
+        lifecycleGate.stop();
     }
 
-    /** 停止接单；若仍有任务在处理，等最后一个任务结束后再回调，让 Spring 在此之前不销毁数据源等依赖。 */
     @Override
     public void stop(Runnable callback) {
-        synchronized (lifecycleLock) {
-            acceptingTasks = false;
-            running = false;
-            if (inFlightTasks > 0) {
-                log.info("收到停机信号，worker 停止领取新任务，等待处理中任务完成，inFlight={}", inFlightTasks);
-                stopCallback = callback;
-                return;
-            }
-        }
-        log.info("收到停机信号，worker 没有处理中任务，立即停止");
-        callback.run();
+        lifecycleGate.stop(callback);
     }
 
     @Override
     public boolean isRunning() {
-        return running;
-    }
-
-    /** 领取前登记处理中任务；登记和检查开关在同一把锁内，保证停机后不会再有新任务开始。 */
-    private boolean tryBeginTask() {
-        synchronized (lifecycleLock) {
-            if (!acceptingTasks) {
-                return false;
-            }
-            inFlightTasks++;
-            return true;
-        }
-    }
-
-    private void finishTask() {
-        Runnable callback = null;
-        synchronized (lifecycleLock) {
-            inFlightTasks--;
-            if (inFlightTasks == 0 && stopCallback != null) {
-                callback = stopCallback;
-                stopCallback = null;
-            }
-        }
-        if (callback != null) {
-            log.info("处理中任务已全部完成，worker 已安全停止");
-            callback.run();
-        }
+        return lifecycleGate.isRunning();
     }
 
     /** 领取操作只修改一行数据库，事务提交后才开始耗时的 S3、Tika 和 LLM 工作。 */

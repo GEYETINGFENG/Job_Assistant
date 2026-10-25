@@ -253,6 +253,192 @@
         "tags" : [ "application-controller" ]
       }
     },
+    "/jobs" : {
+      "get" : {
+        "operationId" : "listJobs",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "cursor",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }, {
+          "in" : "query",
+          "name" : "size",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 20
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseJobPageDTO"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "job-controller" ]
+      },
+      "post" : {
+        "operationId" : "createJob",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/JobCreateRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseJobDTO"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "job-controller" ]
+      }
+    },
+    "/jobs/{id}" : {
+      "get" : {
+        "operationId" : "getJob",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseJobDTO"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "job-controller" ]
+      }
+    },
+    "/matches" : {
+      "get" : {
+        "operationId" : "listMatches",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "jobId",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }, {
+          "in" : "query",
+          "name" : "cursor",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }, {
+          "in" : "query",
+          "name" : "size",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 20
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseMatchPageDTO"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "match-controller" ]
+      },
+      "post" : {
+        "operationId" : "createMatch",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/MatchCreateRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseMatchDTO"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "match-controller" ]
+      }
+    },
+    "/matches/{id}" : {
+      "get" : {
+        "operationId" : "getMatch",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseMatchDTO"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "match-controller" ]
+      }
+    },
     "/resumes" : {
       "get" : {
         "operationId" : "listResumes",
@@ -910,6 +1096,42 @@
           }
         }
       },
+      "BaseResponseJobDTO" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/JobDTO"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "BaseResponseJobPageDTO" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/JobPageDTO"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
       "BaseResponseListApplicationDTO" : {
         "type" : "object",
         "properties" : {
@@ -983,6 +1205,42 @@
           "data" : {
             "type" : "integer",
             "format" : "int64"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "BaseResponseMatchDTO" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/MatchDTO"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "BaseResponseMatchPageDTO" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/MatchPageDTO"
           },
           "description" : {
             "type" : "string"
@@ -1154,8 +1412,199 @@
           }
         }
       },
+      "JobCreateRequest" : {
+        "type" : "object",
+        "properties" : {
+          "companyName" : {
+            "type" : "string"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "jobTitle" : {
+            "type" : "string"
+          },
+          "location" : {
+            "type" : "string"
+          },
+          "salary" : {
+            "type" : "string"
+          }
+        }
+      },
+      "JobDTO" : {
+        "type" : "object",
+        "properties" : {
+          "companyName" : {
+            "type" : "string"
+          },
+          "createTime" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "jobTitle" : {
+            "type" : "string"
+          },
+          "location" : {
+            "type" : "string"
+          },
+          "salary" : {
+            "type" : "string"
+          },
+          "updateTime" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "JobPageDTO" : {
+        "type" : "object",
+        "properties" : {
+          "hasNext" : {
+            "type" : "boolean"
+          },
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/JobDTO"
+            }
+          },
+          "nextCursor" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
       "JsonNode" : {
         "type" : "object"
+      },
+      "MatchAnalysis" : {
+        "type" : "object",
+        "properties" : {
+          "gaps" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "matchedSkills" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "missingSkills" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "suggestions" : {
+            "type" : "array",
+            "items" : {
+              "type" : "string"
+            }
+          },
+          "summary" : {
+            "type" : "string"
+          }
+        }
+      },
+      "MatchCreateRequest" : {
+        "type" : "object",
+        "properties" : {
+          "jobId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "resumeVersionId" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "MatchDTO" : {
+        "type" : "object",
+        "properties" : {
+          "analysis" : {
+            "$ref" : "#/components/schemas/MatchAnalysis"
+          },
+          "attemptCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "createTime" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "engine" : {
+            "type" : "string",
+            "enum" : [ "LLM", "KEYWORD" ]
+          },
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "jobId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "lastErrorCode" : {
+            "type" : "string"
+          },
+          "lastErrorMessage" : {
+            "type" : "string"
+          },
+          "resumeId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "resumeVersionId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "resumeVersionNumber" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "score" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "status" : {
+            "type" : "string",
+            "enum" : [ "PENDING", "PROCESSING", "COMPLETED", "DEAD" ]
+          },
+          "updateTime" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "MatchPageDTO" : {
+        "type" : "object",
+        "properties" : {
+          "hasNext" : {
+            "type" : "boolean"
+          },
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/MatchDTO"
+            }
+          },
+          "nextCursor" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
       },
       "PresignResumeUploadRequest" : {
         "type" : "object",

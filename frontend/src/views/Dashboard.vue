@@ -4,12 +4,15 @@ import { useRouter } from "vue-router";
 import { userLogout } from "../api/user";
 import { tokenStorage } from "../auth/tokenStorage";
 import { useAuthStore } from "../stores/auth";
+import JobPanel from "../components/JobPanel.vue";
+import MatchPanel from "../components/MatchPanel.vue";
 import ResumeListPanel from "../components/ResumeListPanel.vue";
 import ResumeUploadPanel from "../components/ResumeUploadPanel.vue";
 
 const router = useRouter();
 const authStore = useAuthStore();
 const uploadedResumeId = ref(null);
+const selectedJob = ref(null);
 const loggingOut = ref(false);
 
 const displayName = computed(() => authStore.user?.username || authStore.user?.userAccount || "Authenticated User");
@@ -51,6 +54,11 @@ async function handleLogout() {
     <section class="content-grid">
       <ResumeUploadPanel @uploaded="id => (uploadedResumeId = id)" />
       <ResumeListPanel :highlight-id="uploadedResumeId" />
+    </section>
+
+    <section class="content-grid">
+      <JobPanel :selected-job-id="selectedJob?.id ?? null" @select="job => (selectedJob = job)" />
+      <MatchPanel :job="selectedJob" />
     </section>
   </main>
 </template>

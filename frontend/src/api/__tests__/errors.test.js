@@ -5,7 +5,7 @@ describe("error code mapping", () => {
   it("covers every backend error code exactly once", () => {
     // 与后端 ErrorCode 枚举保持一致；后端新增错误码时这里也要加映射。
     expect(Object.keys(ERROR_MESSAGES).map(Number).sort()).toEqual([
-      40000, 40001, 40002, 40100, 40101, 40300, 40400, 40900, 40901, 40902, 40903, 40904, 50000
+      40000, 40001, 40002, 40100, 40101, 40300, 40400, 40900, 40901, 40902, 40903, 40904, 42900, 50000
     ]);
   });
 

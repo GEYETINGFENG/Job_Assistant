@@ -16,6 +16,7 @@ export const ERROR_MESSAGES = Object.freeze({
   40902: "This application was just updated elsewhere. Refresh and try again.",
   40903: "This item was just modified elsewhere. Refresh and try again.",
   40904: "This conflicts with existing data.",
+  42900: "You've reached today's limit. Please try again tomorrow.",
   50000: "Something went wrong on our side. Please try again later."
 });
 
