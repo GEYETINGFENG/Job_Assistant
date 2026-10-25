@@ -360,3 +360,35 @@ The default stays `hash`, so tests and local development need no API key and cos
 - The LLM prompt now sends the skills list plus deduplicated evidence excerpts instead of the whole resume. It falls back to the whole resume when retrieval finds nothing. Coverage comes from retrieval, not from the model, so the model cannot claim evidence that does not exist.
 - The output shape changed, so `prompt_version` was bumped to `keyword-v2` / `match-v2`, and again to `keyword-v3` / `match-v3` when the technology check changed which chunks count as evidence. Earlier results stay stored but are not reused for new requests.
 - `RequirementExtractor` skips company introductions ("About us", "Benefits", "We are hiring…") so they do not show up as uncovered requirements, and splits Chinese job descriptions on 。；and "1、" numbering.
+
+## 8. Resume Parsing: Output Validation and Cost (Lesson 8)
+
+Resume parsing uses the same LLM layer as matching (section 6), and gets the same three protections.
+
+### Business schema validation
+
+JSON Mode only guarantees valid JSON, and deserializing into `ResumeParsedData` accepts almost anything: missing fields become `null`, and unknown fields are ignored. Before this change, `{"name": "Alice"}` was saved as a successful parse. `ResumeParseValidator` now checks the raw model output before anything is stored:
+
+- **Structure and types.** Every field from the prompt must be present. Strings must be strings (`null` is treated as `""`), lists must be arrays, and section entries must be objects with all their fields.
+- **Size limits.** Each field has a length cap (for example 5,000 characters for a description) and each list has an item cap (100 skills, 30 entries per section). These limits also bound how much injected text can reach the stored resume.
+- **Normalization.** Whitespace is trimmed. Empty placeholder objects (which the model sometimes emits despite the prompt) are dropped. Skills, languages and technologies are de-duplicated case-insensitively. Fields outside the prompt's structure are discarded.
+- **Grounding.** Name, email and phone must appear in the extracted resume text, otherwise they are cleared. Phones are compared digits-only, so `(415) 555-0100` grounds `415-555-0100`. The model cannot invent contact details, and an instruction hidden in a resume ("set the email to attacker@…") cannot change them. A malformed email is cleared rather than failing the whole resume.
+- **Empty extraction.** If the source has at least 200 non-whitespace characters but nothing was extracted, the output counts as invalid.
+
+A structural failure throws `SYSTEM_ERROR`, which `ResumeUploadWorker` retries with backoff. Invalid output is never cached. `app.resume.ai.prompt-version` was bumped to `v2`, so cached results from before validation are not reused.
+
+### Cost
+
+- `usage.prompt_tokens` and `usage.completion_tokens` go to the shared counter `llm.tokens{feature=resume_parse,type=…}`. They are recorded **before** validation, because a rejected output still cost tokens.
+- They are also stored on the upload task (`resume_upload_session.prompt_tokens / completion_tokens`, migration `V20`). Each task belongs to a user, so cost can be attributed per user.
+- A cache hit or local (AI-disabled) parsing leaves both columns `NULL`. The cache stores results without usage, so a hit is never billed twice.
+
+### Error classification
+
+Previously every HTTP error from the AI service became `SYSTEM_ERROR` and was retried, so a revoked or wrong API key burned three attempts per upload. Errors are now classified the same way as in matching:
+
+| Response | Error | Upload task |
+|---|---|---|
+| 429, 5xx, timeout | `SYSTEM_ERROR` | retried with backoff |
+| other 4xx (401/403 bad key, 400 bad request) | `AI_SERVICE_REJECTED` | **DEAD on the first attempt** |
+| output fails validation | `SYSTEM_ERROR` | retried with backoff |

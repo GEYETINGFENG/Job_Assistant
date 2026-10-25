@@ -242,6 +242,8 @@ public class ResumeUploadWorker implements SmartLifecycle {
             session.setClaimToken(null);
             session.setLastErrorCode(null);
             session.setLastErrorMessage(null);
+            session.setPromptTokens(parseResult.promptTokens());
+            session.setCompletionTokens(parseResult.completionTokens());
             session.setUpdateTime(Instant.now());
             uploadSessionRepository.save(session);
             return new ProcessingResult(resumeId, versionNumber);

@@ -30,7 +30,9 @@ public enum ErrorCode {
     DATA_CONFLICT(40904, HttpStatus.CONFLICT, "Data conflict", "The submitted data conflicts with an existing resource"),
     // 用户当日的匹配额度已用完（LLM 按量付费，按用户设每日预算上限）。
     QUOTA_EXCEEDED(42900, HttpStatus.TOO_MANY_REQUESTS, "Daily quota exceeded", ""),
-    SYSTEM_ERROR(50000, HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error", "");
+    SYSTEM_ERROR(50000, HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error", ""),
+    // AI 服务拒绝请求（例如 401/403 Key 无效、400 请求非法）：重试也不会成功，异步任务直接进入 DEAD。
+    AI_SERVICE_REJECTED(50201, HttpStatus.BAD_GATEWAY, "AI service rejected the request", "");
 
     private final int code;
     private final HttpStatus httpStatus;

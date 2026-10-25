@@ -34,7 +34,7 @@ public class ResumeParseCacheService {
 
     public ResumeParseCacheService(StringRedisTemplate redis, ObjectMapper objectMapper,
                                    @Value("${app.resume.ai.model:qwen3.7-flash-2026-07-15}") String modelVersion,
-                                   @Value("${app.resume.ai.prompt-version:v1}") String promptVersion,
+                                   @Value("${app.resume.ai.prompt-version:v2}") String promptVersion,
                                    @Value("${app.resume.ai.cache-ttl:24h}") Duration ttl) {
         if (!modelVersion.matches("[A-Za-z0-9._/-]+") || !promptVersion.matches("[A-Za-z0-9._-]+")) {
             throw new IllegalArgumentException("Model and prompt versions must be nonempty key-safe identifiers");

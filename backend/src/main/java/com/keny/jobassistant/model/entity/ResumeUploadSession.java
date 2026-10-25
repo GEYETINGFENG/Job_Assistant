@@ -115,6 +115,15 @@ public class ResumeUploadSession {
     @Column(name = "last_error_message", length = 512)
     private String lastErrorMessage;
 
+    /**
+     * 解析时调用 LLM 消耗的 token，按上传任务（即按用户）归属成本；本地解析或命中缓存时为空。
+     */
+    @Column(name = "prompt_tokens")
+    private Integer promptTokens;
+
+    @Column(name = "completion_tokens")
+    private Integer completionTokens;
+
     @Column(name = "create_time", nullable = false)
     private Instant createTime;
 
