@@ -36,5 +36,21 @@
   {"resume": "ml", "query": "Manage Kubernetes clusters and production on-call duties", "relevant": []},
   {"resume": "frontend", "query": "Design relational database schemas and write stored procedures", "relevant": []},
   {"resume": "frontend", "query": "Train machine learning models in PyTorch", "relevant": []},
-  {"resume": "sre", "query": "Build user interfaces with React and CSS animations", "relevant": []}
+  {"resume": "sre", "query": "Build user interfaces with React and CSS animations", "relevant": []},
+
+  {"resume": "backend", "query": "Experience building Go services with gRPC", "relevant": [], "hard": true},
+  {"resume": "backend", "query": "Hands-on experience with MongoDB or Cassandra", "relevant": [], "hard": true},
+  {"resume": "backend", "query": "Familiarity with RabbitMQ message queues", "relevant": [], "hard": true},
+  {"resume": "backend", "query": "Deploy and operate services on Google Cloud Platform", "relevant": [], "hard": true},
+  {"resume": "ml", "query": "Experience deploying models with Docker and Kubernetes on AWS", "relevant": [], "hard": true},
+  {"resume": "ml", "query": "Build ML pipelines with Kubeflow or SageMaker", "relevant": [], "hard": true},
+  {"resume": "ml", "query": "Hands-on experience with Hadoop and Hive", "relevant": [], "hard": true},
+  {"resume": "ml", "query": "Research experience with JAX", "relevant": [], "hard": true},
+  {"resume": "frontend", "query": "Experience building mobile apps with React Native", "relevant": [], "hard": true},
+  {"resume": "frontend", "query": "Proficiency with Angular and RxJS", "relevant": [], "hard": true},
+  {"resume": "frontend", "query": "Experience with GraphQL and Apollo Client", "relevant": [], "hard": true},
+  {"resume": "sre", "query": "Manage infrastructure on Azure with Bicep templates", "relevant": [], "hard": true},
+  {"resume": "sre", "query": "Experience with Datadog or New Relic monitoring", "relevant": [], "hard": true},
+  {"resume": "sre", "query": "Build streaming jobs with Apache Flink", "relevant": [], "hard": true},
+  {"resume": "sre", "query": "Configuration management with Ansible", "relevant": [], "hard": true}
 ]

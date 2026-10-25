@@ -16,22 +16,30 @@ import java.util.Map;
  * 向量检索总会返回 top-k，哪怕没有任何相关内容；不设阈值就等于让下游拿不相关的片段当证据。
  * 阈值按模型校准：不同模型的相似度分布完全不同（哈希向量的相关片段多在 0.1–0.4，text-embedding-v4 在 0.4–0.7），
  * 不能共用一个数。
+ * 阈值只能区分"话题相关"和"无关"：同领域但简历没有的技术（ML 简历对 Hadoop）相似度一样很高，
+ * 所以还要过 {@link TechnologyTerms#supports} 的字面检查。
  */
 @Service
 public class ResumeRetriever {
 
     static final int MAX_EXCERPT_LENGTH = 280;
+    /**
+     * 先多取一些候选再过滤：最相似的片段可能没提到要求点名的技术（例如技能列表排在经历后面），
+     * 只取 top-k 再过滤会漏掉其实存在的证据。一个版本只有十几个块，多取几个几乎没有成本。
+     */
+    static final int MIN_CANDIDATES = 12;
 
     /** 每个 embedding 模型在评测集上校准出的 top-k 和相似度阈值。 */
     record Calibration(int topK, double similarityThreshold) {
     }
 
     /**
-     * 阈值按 Youden J 选出；k 取召回不再提升的最小值（docs/rag-evaluation.md 实验 2、4、5c、5d）。
+     * 阈值按 Youden J 选出（与生产一致，扫描时带上技术名检查）；k 取召回不再提升的最小值
+     * （docs/rag-evaluation.md 实验 2、4、5d、5e）。
      * 没校准过的模型启动时直接失败，必须先跑评测或显式配置 RAG_TOP_K 和 RAG_SIMILARITY_THRESHOLD，避免沿用别的模型的参数。
      */
     static final Map<String, Calibration> CALIBRATIONS = Map.of(
-            HashingEmbeddingClient.MODEL, new Calibration(3, 0.15),
+            HashingEmbeddingClient.MODEL, new Calibration(3, 0.05),
             "text-embedding-v4", new Calibration(2, 0.35));
 
     private final ResumeChunkRepository chunkRepository;
@@ -73,13 +81,16 @@ public class ResumeRetriever {
         List<float[]> queryVectors = embeddingClient.embed(requirements);
         List<RequirementEvidence> result = new ArrayList<>(requirements.size());
         for (int i = 0; i < requirements.size(); i++) {
+            String requirement = requirements.get(i);
             List<EvidenceSnippet> evidence = chunkRepository
-                    .search(resumeVersionId, embeddingClient.model(), queryVectors.get(i), topK)
+                    .search(resumeVersionId, embeddingClient.model(), queryVectors.get(i), Math.max(topK * 4, MIN_CANDIDATES))
                     .stream()
                     .filter(hit -> hit.similarity() >= similarityThreshold)
+                    .filter(hit -> TechnologyTerms.supports(requirement, hit.content()))
+                    .limit(topK)
                     .map(hit -> new EvidenceSnippet(hit.section().name(), excerpt(hit.content()), round(hit.similarity())))
                     .toList();
-            result.add(new RequirementEvidence(requirements.get(i), !evidence.isEmpty(), evidence));
+            result.add(new RequirementEvidence(requirement, !evidence.isEmpty(), evidence));
         }
         return result;
     }

@@ -6,6 +6,7 @@ import com.keny.jobassistant.model.ai.MatchAnalysisResult;
 import com.keny.jobassistant.model.ai.RequirementEvidence;
 import com.keny.jobassistant.model.enums.MatchEngine;
 import com.keny.jobassistant.service.MatchAnalyzer;
+import com.keny.jobassistant.service.rag.TechnologyTerms;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Service;
 
@@ -23,22 +24,12 @@ import java.util.Map;
 public class KeywordMatchAnalyzer implements MatchAnalyzer {
 
     // v2：结果新增 requirements（RAG 检索的逐条要求证据）。
-    static final String PROMPT_VERSION = "keyword-v2";
+    // v3：词表扩充，要求覆盖增加"点名的技术必须出现在证据里"的检查。
+    static final String PROMPT_VERSION = "keyword-v3";
     private static final int MAX_SUGGESTIONS = 5;
 
-    /**
-     * JD 中常见的技术关键词，用来找"JD 要求但简历没有"的技能。
-     */
-    static final List<String> TECH_VOCABULARY = List.of(
-            "Java", "Kotlin", "Scala", "Python", "Go", "Golang", "Rust", "C", "C++", "C#", ".NET",
-            "JavaScript", "TypeScript", "Node.js", "React", "Vue", "Angular", "Next.js", "HTML", "CSS",
-            "Spring", "Spring Boot", "Spring Cloud", "Hibernate", "JPA", "MyBatis", "Django", "Flask", "FastAPI",
-            "SQL", "PostgreSQL", "MySQL", "Oracle", "MongoDB", "Redis", "Elasticsearch", "Cassandra", "DynamoDB",
-            "Kafka", "RabbitMQ", "SQS", "gRPC", "GraphQL", "REST",
-            "Docker", "Kubernetes", "Terraform", "AWS", "GCP", "Azure", "Linux", "Git", "CI/CD", "Jenkins",
-            "Microservices", "Distributed Systems", "System Design",
-            "Machine Learning", "PyTorch", "TensorFlow", "LLM", "RAG", "Spark", "Hadoop", "Airflow"
-    );
+    /** JD 中常见的技术关键词，用来找"JD 要求但简历没有"的技能；与 RAG 的证据检查共用一份词表。 */
+    static final List<String> TECH_VOCABULARY = TechnologyTerms.VOCABULARY;
 
     @Override
     public MatchEngine engine() {
