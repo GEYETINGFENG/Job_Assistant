@@ -1,5 +1,14 @@
 # Design Notes
 
+| Topic | Sections |
+|---|---|
+| Data consistency and concurrency | 1. Version numbers · 2. Pessimistic locking · 3. Optimistic locking · 4. Application status state machine · 11. Idempotency |
+| Security | 10. Authentication tokens (resume upload security is in [`RESUME-UPLOAD-DESIGN.md`](RESUME-UPLOAD-DESIGN.md)) |
+| Frontend | 5. Frontend contract and error handling |
+| Background processing | 6. Job matching pipeline · 12. Async task delivery semantics |
+| AI | 6. LLM generation layer · 7. RAG retrieval layer · 8. Resume parsing validation and cost |
+| Performance and cost | 9. Caching and rate limiting (load test results are in [`docs/performance-report.md`](docs/performance-report.md)) |
+
 ## 1. Version Number Strategy
 
 Resume version numbers are generated using **atomic PostgreSQL SQL**.
@@ -247,7 +256,7 @@ A unique index on `(resume_version_id, job_id, engine, prompt_version)` means ea
 
 The insert is `INSERT … ON CONFLICT DO NOTHING`. When identical requests race, exactly one inserts and the others read the existing row. The database constraint acts as the result cache, so no separate Redis cache is needed. Changing the prompt bumps `prompt_version`, so old results are never mistaken for new ones.
 
-### LLM generation layer (Lesson 8)
+### LLM generation layer
 
 1. **Structured output**: JSON Mode only guarantees valid JSON. `MatchAnalysisValidator` also checks the business shape: integer score 0–100, every field present, arrays of non-empty strings with item-count and length caps, no skill both matched and missing. Failing output counts as a retryable failure.
 2. **Prompt injection**: the job description and resume are untrusted, so they are wrapped in `<job_description>` and `<resume>` tags and the system prompt says to ignore instructions inside them. Prompts cannot fully stop injection, so the design limits the blast radius instead:
@@ -264,9 +273,9 @@ The insert is `INSERT … ON CONFLICT DO NOTHING`. When identical requests race,
 
 When AI is disabled (`MATCH_AI_ENABLED` or `RESUME_AI_ENABLED` false), `KeywordMatchAnalyzer` compares the resume's declared skills with the job text using symbol-aware word boundaries (so `Java` does not match `JavaScript`, and `C++` is matched correctly). It also lists common technologies the job mentions but the resume lacks. Results are deterministic, free, and marked `engine = KEYWORD` so the UI can say it ignores experience and seniority. Because `engine` is part of the unique key, keyword results never block a later LLM analysis.
 
-## 7. RAG Retrieval Layer (Lesson 7)
+## 7. RAG Retrieval Layer
 
-Before Lesson 7 the matcher put the **whole resume JSON** into the prompt. Now the job description is split into requirements (`RequirementExtractor`, at most 15). For each requirement the matcher searches the resume for evidence, so the result can say *where* the resume supports a requirement, or that nothing does. Every number below comes from `RagEvaluationTest`. The full report is in [`docs/rag-evaluation.md`](docs/rag-evaluation.md), built from 4 fictional resumes and 49 labelled queries: 28 with a relevant section and 21 with none. Of those 21, 15 are **hard negatives**: requirements from the same field as the resume that name a technology the resume never mentions, such as "Hadoop and Hive" against the ML resume.
+The matcher used to put the **whole resume JSON** into the prompt. Now the job description is split into requirements (`RequirementExtractor`, at most 15). For each requirement the matcher searches the resume for evidence, so the result can say *where* the resume supports a requirement, or that nothing does. Every number below comes from `RagEvaluationTest`. The full report is in [`docs/rag-evaluation.md`](docs/rag-evaluation.md), built from 4 fictional resumes and 49 labelled queries: 28 with a relevant section and 21 with none. Of those 21, 15 are **hard negatives**: requirements from the same field as the resume that name a technology the resume never mentions, such as "Hadoop and Hive" against the ML resume.
 
 ```text
 MatchWorker ─ ensureIndexed(version) ─ chunk ─ cache lookup ─ embed misses ─ resume_chunk (V19)
@@ -361,7 +370,7 @@ The default stays `hash`, so tests and local development need no API key and cos
 - The output shape changed, so `prompt_version` was bumped to `keyword-v2` / `match-v2`, and again to `keyword-v3` / `match-v3` when the technology check changed which chunks count as evidence. Earlier results stay stored but are not reused for new requests.
 - `RequirementExtractor` skips company introductions ("About us", "Benefits", "We are hiring…") so they do not show up as uncovered requirements, and splits Chinese job descriptions on 。；and "1、" numbering.
 
-## 8. Resume Parsing: Output Validation and Cost (Lesson 8)
+## 8. Resume Parsing: Output Validation and Cost
 
 Resume parsing uses the same LLM layer as matching (section 6), and gets the same three protections.
 
@@ -393,7 +402,7 @@ Previously every HTTP error from the AI service became `SYSTEM_ERROR` and was re
 | other 4xx (401/403 bad key, 400 bad request) | `AI_SERVICE_REJECTED` | **DEAD on the first attempt** |
 | output fails validation | `SYSTEM_ERROR` | retried with backoff |
 
-## 9. Caching and Rate Limiting (Lesson 10)
+## 9. Caching and Rate Limiting
 
 The most expensive operation in the system is the resume-parsing LLM call: it takes seconds, costs money, and runs at temperature 0.1, so the same file always gives the same result. A Redis cache removes the repeated calls (`ResumeParseCacheService`), and a Redis token bucket stops a burst of uploads from running up the bill (`LlmRateLimiter`, details in [`docs/llm-rate-limit.md`](docs/llm-rate-limit.md)). The hit rate is counted in Redis and exposed at `GET /admin/resume-cache/stats`, because a cache whose hit rate nobody measures cannot be tuned.
 
@@ -407,11 +416,11 @@ The most expensive operation in the system is the resume-parsing LLM call: it ta
 | User id + file name | Editing the file without renaming it returns the old result. |
 | **Content hash** | Same bytes mean the same input and the same key, no matter who uploads it or what it is called. |
 
-The model and prompt version are part of the key, so changing either one invalidates every old entry without a migration. This is the Lesson 8 rule of not betting on things staying the same. For example, the validation added in section 8 bumped the prompt version to `v2`.
+The model and prompt version are part of the key, so changing either one invalidates every old entry without a migration. Nothing about the model or the prompt is assumed to stay fixed. For example, the validation added in section 8 bumped the prompt version to `v2`.
 
 ### Why the rate limiter lives in Redis
 
-With the counter in application memory, three instances behind a load balancer each allow the full rate, and a user gets three times the limit. Guava and Resilience4j limiters are per process. The token bucket is a Lua script on a single Redis hash, so every instance spends from the same bucket, and refill and spend happen atomically. It is the same reasoning as the multi-instance locks in Lesson 9: state that must be shared between instances cannot live inside one of them.
+With the counter in application memory, three instances behind a load balancer each allow the full rate, and a user gets three times the limit. Guava and Resilience4j limiters are per process. The token bucket is a Lua script on a single Redis hash, so every instance spends from the same bucket, and refill and spend happen atomically. It is the same reasoning as the database-backed task claims in section 6: state that must be shared between instances cannot live inside one of them.
 
 ### Three pitfalls
 
@@ -426,3 +435,79 @@ All three protections fail open where that is safe. If Redis cannot answer the l
 ### Cache-Aside and invalidation
 
 The usual Cache-Aside rule is: on write, update the database and then **delete** the cache entry rather than update it. Deleting is idempotent, while two concurrent updates can land in the wrong order and leave the old value. This cache does not need that step: its keys are **content-addressed**. A new resume version has different bytes, therefore a different key, and the old entry is simply never read again. The TTL exists for memory management, so unused entries are evicted, and not for consistency. The same holds for the derived RAG chunks (section 7): they belong to an immutable resume version and are deleted with it.
+
+## 10. Authentication Tokens
+
+### Lifetimes
+
+| Token | Lifetime | Stored where | Why |
+|---|---|---|---|
+| Access token (JWT, signed) | **15 minutes** | Only on the client | Verified without a database lookup, so it cannot be revoked early. Its lifetime is the window an attacker gets from a stolen token, and the delay before a change in the user's rights takes effect. 15 minutes keeps both small while sending only about four refreshes per hour per active user. |
+| Refresh token (random 256-bit) | **30 days** | Database, as a SHA-256 hash | Used only against `/user/refresh`, so every use is checked in the database and it can be revoked at any time. A month means people who come back weekly do not have to sign in again. A database leak exposes hashes, not usable tokens. |
+
+### Rotation and reuse detection
+
+Each refresh **rotates** the token: the old refresh token is revoked and a new one is issued in the same *family*, which starts at login. A revoked token that shows up again means one of two things: a client bug, or a copied token being replayed. The server cannot tell the legitimate holder from the attacker, so it revokes the **whole family**, and both must sign in again. An expired refresh token also revokes its family. A deleted or disabled user cannot refresh at all.
+
+**False positives and how they are contained.** Reuse detection fires whenever the *same* token is submitted twice, which also happens without any attacker:
+
+| Cause | Mitigation |
+|---|---|
+| Several requests in one tab get 401 at once and each refreshes | Frontend single-flight refresh (section 5): one refresh, everyone else awaits it. |
+| Two tabs refresh at the same moment | Backend grace window: a second refresh of the same token within **5 seconds** gets the *same* new pair instead of triggering revocation. The token row is locked (`SELECT … FOR UPDATE`) and the cache is checked again after the lock, so the slower request sees the first one's result. |
+| The response of a successful refresh is lost (network drop) and the client retries | Covered by the same 5-second window. A retry after more than 5 seconds still signs the user out, which is the deliberate trade-off. |
+
+**Limitation:** the grace-window results live in each instance's memory. With several instances, two near-simultaneous refreshes that land on different instances still look like reuse. Moving that small map to Redis with a 5-second TTL would close the gap. The frontend single-flight lock makes this rare in practice.
+
+### Roles in the token, and the downgrade delay
+
+The access token carries `roles` (`USER` or `ADMIN`), and Spring Security builds authorities from that claim **without reading the database**. This is what makes access tokens cheap to verify. The cost is that a change in rights only takes effect when the next access token is issued:
+
+- **Revoking admin rights** or **disabling** a user leaves the current access token valid for up to **15 minutes**.
+- Deleting a user revokes all of their refresh tokens immediately (`revokeAllByUserId`), so no new access token can be obtained. The current one still works until it expires.
+
+That window is acceptable for this application. If it were not, the options in increasing cost are: a shorter access-token lifetime; a per-user `token_version` that is checked on each request (one cached lookup); or reading roles from the database on every request. There is no "change password" or "disable user" endpoint yet. When they are added, they must call `revokeAllByUserId` like delete does.
+
+## 11. Idempotency
+
+Every operation that a client may retry, or that two workers may perform at the same time, has a key the database enforces, so a duplicate becomes a no-op instead of a second side effect.
+
+| Operation | Idempotency key | Enforced by | A duplicate gets |
+|---|---|---|---|
+| Request an upload URL (`POST /resumes/uploads/presign`) | `Idempotency-Key` header, scoped to the user (and to the resume for a new version) | Partial unique indexes on `resume_upload_session` | The **same** `uploadId`. A fresh URL is issued only while the file has not been handed over yet (`UPLOADING`, `EXPIRED`, `DEAD`). Once it is queued or processing, the request is refused, so a retry cannot overwrite a file being parsed. The same key with a different file name or size is rejected. |
+| Confirm an upload (`POST …/complete`) | `uploadId` | Row lock + status check, then S3 `copy-if-match` on the source ETag | The existing task (`202` while queued or processing, `200` once completed). If the process crashed after the S3 copy, the frozen copy already exists and the call just queues the task. |
+| Create a resume version | `(resume_id, version_number)` | Unique constraint + atomic `next version` SQL (section 1) | Two concurrent uploads get versions *n* and *n + 1*, never the same number. |
+| Request a match (`POST /matches`) | `(resume_version_id, job_id, engine, prompt_version)` | Unique index + `INSERT … ON CONFLICT DO NOTHING` (section 6) | The existing analysis or task. Quota is charged only by the request that actually inserted. |
+| Index a resume version for retrieval | `(resume_version_id, embedding_model, chunk_key)` | Unique index + `ON CONFLICT DO NOTHING` (section 7) | Each chunk stored once, even when two workers index together. |
+| Change an application's status | Expected current status | Conditional `UPDATE … WHERE status = :from` (section 4) | Exactly one of two concurrent transitions wins; the other gets `409`. |
+| A worker finishing a task | `claim_token` written when the task was claimed | Result saved only if the token still matches | A worker that timed out and finishes late cannot overwrite the newer attempt. |
+
+Two rules hold throughout. The key is chosen by **what the operation means**, not by the request: a match is "this version against this job with this engine and prompt", whoever asks. And the **database constraint is the final authority**: application-level checks only produce friendlier answers, and two racing requests are settled by the unique index, never by a read-then-write in Java.
+
+## 12. Async Task Delivery Semantics
+
+Resume parsing, matching and retrieval indexing all run in background workers. Their guarantees are the same.
+
+### At-least-once, made safe by idempotency
+
+A task is a database row (`resume_upload_session`, `match_record`), not a message on a broker. Workers claim rows with `SELECT … FOR UPDATE SKIP LOCKED`, so instances never take the same task, and stamp them with a fresh `claim_token`.
+
+- **Nothing is lost.** A task leaves `PENDING` only by being claimed. If a worker dies mid-task, the recovery coordinator finds the row stuck in `PROCESSING` past its timeout and queues it again.
+- **A task may run more than once.** Recovery can requeue a task whose original worker was only slow, not dead. Exactly-once is not achievable across a process crash and an external API call, so every step is made idempotent instead (section 11): `claim_token` discards the late result, and unique keys absorb repeated writes. The effect is *effectively once*.
+- Rate limits and a parse that is already in progress (section 9) **defer** a task without using up an attempt. Only real failures count toward the retry limit.
+
+### Why there is no outbox
+
+The transactional outbox solves *dual writes*: changing the database and publishing a message, where one can succeed without the other. Here the task row **is** the queue entry, and it is written in the same transaction as the business state it belongs to, for example the `PENDING` match row returned to the client. There is no second system to publish to, so there is nothing to keep in sync. The one remaining dual write is between S3 and the database during upload confirmation. It is ordered so that every crash point is recoverable: the frozen copy is made first, the task is queued only after that, and a confirmation retried after a crash finds the copy and continues.
+
+If the workload ever moves to a broker (SQS, Kafka), this is the point where an outbox becomes necessary. The task table would then be written together with an outbox row in one transaction, and a relay would publish it.
+
+### Retries and the dead-letter state
+
+| Failure | Handling |
+|---|---|
+| Transient: timeout, 5xx, 429, output that failed validation, Redis unavailable | Back off (30 s, 60 s, 120 s … up to 10 min) and retry, at most 3 attempts in total. |
+| Permanent: AI service rejected the request (bad key), file failed security checks, resume known to be unparseable | Straight to `DEAD`, without wasting the remaining attempts. |
+| Attempts exhausted | `DEAD`. |
+
+`DEAD` is the **dead-letter state**. The task stays in the table with `last_error_code` and `last_error_message`, so it can be inspected and counted, and the user sees why it failed. Temporary S3 objects of a dead upload are deleted. Recovery is explicit: requesting the same match again resets a `DEAD` task to `PENDING`, and an upload is retried by presigning again with the same `Idempotency-Key`. Nothing re-enters the queue on its own, so a poison task cannot loop forever.

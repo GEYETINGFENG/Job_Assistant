@@ -6,15 +6,24 @@ An AI-powered job assistant system built with **Spring Boot** and **LLM technolo
 
 ## Features
 
-Redis 简历解析缓存的环境配置和手工验收步骤见 [Apifox 验收指南](docs/resume-cache-apifox.md)。
-全局令牌桶参数和限流重试验收见 [LLM 全局限流指南](docs/llm-rate-limit.md)。
+- **Accounts**: sign-in with short-lived JWT access tokens and rotating refresh tokens (reuse detection revokes the whole session family).
+- **Resume upload and parsing**: files go straight to S3 through presigned URLs. A background worker validates the file, extracts text and parses it with an LLM into structured JSON. The output is schema-validated and contact details are checked against the source text.
+- **Resume versions**: every upload of an existing resume becomes a new immutable version.
+- **Job matching**: save a job description and match it against any resume version. Matching runs asynchronously and returns a score, matched and missing skills, gaps and suggestions. It uses an LLM, with a keyword fallback when AI is disabled.
+- **Requirement coverage**: the job description is split into requirements, and retrieval over the resume (pgvector) shows the evidence for each one, or says that none was found.
+- **Application tracking**: a status state machine with an event history.
+- **Cost control**: Redis caching of parse results, a global LLM rate limiter, per-user daily match quota, and token usage recorded per task.
 
-- User authentication and authorization
-- Resume upload and management
-- AI-powered resume parsing and analysis
-- Job description matching and recommendation
-- Resume version management
-- Application progress tracking
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [`DESIGN.md`](DESIGN.md) | Design decisions: concurrency and idempotency, state machines, authentication tokens, async task delivery, LLM layer, RAG, caching and rate limiting |
+| [`RESUME-UPLOAD-DESIGN.md`](RESUME-UPLOAD-DESIGN.md) | Upload security: ownership, presigned uploads, file-content checks, storage and cleanup |
+| [`docs/rag-evaluation.md`](docs/rag-evaluation.md) | Retrieval evaluation report (chunking, top-k, threshold, embedding models) |
+| [`docs/performance-report.md`](docs/performance-report.md) | Load test results |
+| [`docs/llm-rate-limit.md`](docs/llm-rate-limit.md) | LLM token bucket parameters and how to test it (Chinese) |
+| [`docs/resume-cache-apifox.md`](docs/resume-cache-apifox.md) | Resume parse cache setup and manual acceptance steps (Chinese) |
 
 ## Tech Stack
 
@@ -27,21 +36,22 @@ Redis 简历解析缓存的环境配置和手工验收步骤见 [Apifox 验收�
 - Maven
 
 ### Database & Storage
-- PostgreSQL (JSONB for parsed resumes)
-- Redis (resume parse cache, global LLM token-bucket rate limiter)
+- PostgreSQL (JSONB for parsed resumes, pgvector for resume chunk embeddings)
+- Redis (resume parse cache, global LLM token-bucket rate limiter, daily match quota)
 - Amazon S3 (presigned uploads, resume file storage)
 
 ### AI
 - Alibaba Cloud Bailian (DashScope, OpenAI-compatible API) via Spring `RestClient`
-- Prompt engineering for structured resume extraction, with JSON validation
+- Structured output with business schema validation for resume parsing and match analysis
+- RAG: structured resume chunking, `text-embedding-v4` or a local hashing embedding, exact cosine search in pgvector
 
 ### Frontend
-- Vue 3 + Vite
-- Pinia, Vue Router, Axios
+- Vue 3 + Vite, TypeScript API types generated from the backend's OpenAPI contract
+- Pinia, Vue Router, Axios (silent token refresh with a single-flight lock)
 
 ### Engineering
 - Testing: JUnit 5, Mockito, Testcontainers (PostgreSQL / Redis)
-- CI: GitHub Actions (unit tests, then integration tests)
+- CI: GitHub Actions (backend unit tests, then integration tests; frontend contract check, type check, Vitest and build)
 - Observability: Micrometer + Prometheus metrics, structured JSON logs with request IDs
 - Deployment: Docker (multi-stage, non-root) + docker-compose
 - Load testing: k6 (see [performance report](docs/performance-report.md))
@@ -115,4 +125,12 @@ Browser preflight `OPTIONS` requests are permitted without authentication. Cross
 
 ### 5. Current Limitations and Risks
 
-- JWTs cannot be immediately revoked before expiration.
+- **Access tokens cannot be revoked early.** A JWT stays valid until it expires (15 minutes). Refresh tokens *can* be revoked: signing out revokes the session family, reuse detection revokes it automatically, and deleting a user revokes all of that user's sessions.
+- **Role changes are delayed.** Roles are read from the access token, so removing admin rights takes effect within 15 minutes, when the next token is issued.
+- **The refresh grace window is per instance.** Two near-simultaneous refreshes of the same token that land on different instances can be treated as token reuse and sign the user out.
+- **No password change or account disable yet.** When added, they must revoke all of the user's refresh tokens, as account deletion already does.
+- **Browser uploads need S3 CORS.** The bucket must allow `PUT` from the frontend origin, otherwise the browser cannot upload to the presigned URL.
+- **Retrieval limits.** Evidence for a named technology requires that technology to appear in the resume text, using a fixed technology vocabulary. The evaluation set has 49 labelled queries, so thresholds should be re-checked as real job descriptions accumulate.
+- **No infrastructure as code yet.** Deployment is Docker and docker-compose; the cloud resources (RDS, ElastiCache, ECS, ALB) are not described in Terraform.
+
+See [`DESIGN.md`](DESIGN.md) for the reasoning behind these trade-offs.
