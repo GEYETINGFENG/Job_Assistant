@@ -29,6 +29,7 @@ With only ~2 chunks per resume, fixed-800 retrieves almost the whole resume at k
 | k | Recall@k | Precision@k |
 |---|---|---|
 | 1 | 55.4% | 57.1% |
+| 2 | 67.9% | 35.7% |
 | 3 | 89.3% | 31.0% |
 | 5 | 96.4% | 20.0% |
 
@@ -104,3 +105,87 @@ Best threshold by Youden J: **0.15**.
 | frontend | Design relational database schemas and write stored procedures | (none) | education:0, experience:1, summary | 0.11 | n/a |
 | frontend | Train machine learning models in PyTorch | (none) | summary, skills, experience:0 | 0.00 | n/a |
 | sre | Build user interfaces with React and CSS animations | (none) | summary, skills, experience:0 | 0.00 | n/a |
+
+## Experiment 5: embedding model (structured chunking)
+
+Same dataset and the same exact cosine search; only the embedding model changes. `text-embedding-v4` is called through the DashScope OpenAI-compatible API.
+
+### 5a. Retrieval quality
+
+| Embedding | Recall@1 | Recall@3 | Recall@5 | Precision@3 | MRR | Recall @ 800 chars |
+|---|---|---|---|---|---|---|
+| `local-hash-v1` | 55.4% | 89.3% | 96.4% | 31.0% | 0.72 | 89.3% |
+| `text-embedding-v4` | 94.6% | 100.0% | 100.0% | 34.5% | 0.98 | 100.0% |
+
+### 5b. Similarity distribution of the top-1 chunk
+
+The threshold has to separate "top chunk is relevant" from "the resume has nothing relevant". Where these ranges overlap, no threshold can be perfect.
+
+| Embedding | Positives, top-1 relevant (min / mean / max) | Negatives (min / mean / max) |
+|---|---|---|
+| `local-hash-v1` | 0.03 / 0.17 / 0.46 | 0.00 / 0.05 / 0.11 |
+| `text-embedding-v4` | 0.41 / 0.55 / 0.72 | 0.18 / 0.27 / 0.32 |
+
+### 5c. Similarity threshold for `text-embedding-v4` (structured, top-1)
+
+Semantic similarities sit much higher than lexical ones, so the hashing threshold cannot be reused.
+
+| Threshold | Positives with correct evidence | Negatives rejected | Youden J |
+|---|---|---|---|
+| 0.00 | 96.4% | 0.0% | -0.04 |
+| 0.05 | 96.4% | 0.0% | -0.04 |
+| 0.10 | 96.4% | 0.0% | -0.04 |
+| 0.15 | 96.4% | 0.0% | -0.04 |
+| 0.20 | 96.4% | 16.7% | 0.13 |
+| 0.25 | 96.4% | 16.7% | 0.13 |
+| 0.30 | 96.4% | 66.7% | 0.63 |
+| **0.35** | 96.4% | 100.0% | 0.96 |
+| 0.40 | 96.4% | 100.0% | 0.96 |
+| 0.45 | 89.3% | 100.0% | 0.89 |
+| 0.50 | 60.7% | 100.0% | 0.61 |
+| 0.55 | 46.4% | 100.0% | 0.46 |
+| 0.60 | 28.6% | 100.0% | 0.29 |
+| 0.65 | 17.9% | 100.0% | 0.18 |
+| 0.70 | 3.6% | 100.0% | 0.04 |
+| 0.75 | 0.0% | 100.0% | 0.00 |
+| 0.80 | 0.0% | 100.0% | 0.00 |
+| 0.85 | 0.0% | 100.0% | 0.00 |
+| 0.90 | 0.0% | 100.0% | 0.00 |
+
+Best threshold by Youden J: **0.35**.
+
+### 5d. Top-k after the threshold (`text-embedding-v4`, threshold 0.35)
+
+Production takes the top k chunks and then drops those below the threshold, so k is only an upper bound on how much evidence reaches the prompt.
+
+| k | Recall | Precision of kept chunks | Chunks kept / requirement |
+|---|---|---|---|
+| 1 | 94.6% | 96.4% | 1.0 |
+| 2 | 98.2% | 62.5% | 1.8 |
+| 3 | 98.2% | 56.0% | 2.1 |
+| 5 | 98.2% | 53.3% | 2.5 |
+
+### 5e. Queries where the top-1 result changes
+
+| Resume | Query | Labelled | `local-hash-v1` top-1 | `text-embedding-v4` top-1 |
+|---|---|---|---|---|
+| backend | Build and maintain high-throughput event streaming with Kafka | experience:0, skills | skills (0.07) ✓ | experience:0 (0.51) ✓ |
+| backend | Design idempotent payment APIs that are safe to retry | experience:0 | summary (0.07) ✗ | experience:0 (0.59) ✓ |
+| backend | Break a monolithic application into microservices | experience:1 | summary (0.00) ✗ | experience:1 (0.49) ✓ |
+| ml | Run online experiments to measure model impact | experience:0 | experience:1 (0.05) ✗ | experience:0 (0.41) ✓ |
+| ml | Build retrieval-augmented generation with vector search | project:0 | education:0 (0.09) ✗ | project:0 (0.56) ✓ |
+| ml | Deploy deep learning models to production | project:1 | experience:0 (0.08) ✗ | project:1 (0.56) ✓ |
+| ml | Predict customer churn using gradient boosted trees | experience:1 | summary (0.00) ✗ | experience:1 (0.44) ✓ |
+| ml | Graduate degree in statistics or a related field | education:0 | experience:0 (0.04) ✗ | education:0 (0.50) ✓ |
+| frontend | Ensure accessibility compliance for web applications | experience:0 | experience:1 (0.04) ✗ | summary (0.45) ✗ |
+| frontend | Improve page load performance and bundle size | experience:0 | skills (0.07) ✗ | experience:0 (0.46) ✓ |
+| frontend | Offline-capable progressive web apps | project:1 | experience:1 (0.10) ✗ | project:1 (0.53) ✓ |
+| sre | Participate in on-call rotation and incident response | experience:0 | project:1 (0.06) ✗ | experience:0 (0.46) ✓ |
+| sre | Define service level objectives and alerting | experience:0 | certificates (0.06) ✗ | experience:0 (0.49) ✓ |
+| backend | Experience with mobile development in Swift and iOS | (none) | education:0 (0.09) | experience:0 (0.31) |
+| ml | Manage Kubernetes clusters and production on-call duties | (none) | experience:0 (0.04) | project:0 (0.26) |
+| frontend | Design relational database schemas and write stored procedures | (none) | education:0 (0.11) | project:0 (0.29) |
+| frontend | Train machine learning models in PyTorch | (none) | summary (0.00) | project:1 (0.18) |
+| sre | Build user interfaces with React and CSS animations | (none) | summary (0.00) | project:1 (0.27) |
+
+_38 embedding requests in this run (vectors cached per text)._

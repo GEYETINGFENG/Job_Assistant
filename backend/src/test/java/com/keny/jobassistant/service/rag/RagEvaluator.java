@@ -54,6 +54,14 @@ final class RagEvaluator {
     }
 
     /**
+     * 生产中的取法：top-k 之后再丢掉低于阈值的片段。
+     * @param precision        留下的片段里相关的比例（只统计至少留下一个片段的查询）
+     * @param evidencePerQuery 平均每条要求实际交给下游的片段数
+     */
+    record FilteredMetrics(double recall, double precision, double evidencePerQuery) {
+    }
+
+    /**
      * @param recall           标注段落被找回的比例
      * @param contextPrecision 取回的字符中属于相关段落的比例：越低说明塞进 prompt 的无关内容越多
      * @param charsPerQuery    平均每条查询取回的字符数
@@ -180,6 +188,34 @@ final class RagEvaluator {
             count++;
         }
         return new Metrics(recall / count, precision / count, reciprocalRank / count, count);
+    }
+
+    FilteredMetrics evaluateWithThreshold(ChunkStrategy strategy, EmbeddingClient embeddings, int k, double threshold) {
+        Index index = new Index(strategy, embeddings);
+        double recall = 0;
+        double precision = 0;
+        double evidence = 0;
+        int count = 0;
+        int withEvidence = 0;
+        for (Query query : queries) {
+            if (!query.positive()) continue;
+            Map<String, SpannedChunk> labels = resumes.get(query.resume()).spansByKey();
+            List<Scored> kept = index.search(query).stream().limit(k).filter(scored -> scored.similarity() >= threshold).toList();
+            Set<String> found = new HashSet<>();
+            int relevant = 0;
+            for (Scored scored : kept) {
+                if (isRelevant(scored.chunk(), query, labels)) relevant++;
+                query.relevant().stream().filter(key -> overlaps(scored.chunk(), labels.get(key))).forEach(found::add);
+            }
+            recall += (double) found.size() / query.relevant().size();
+            if (!kept.isEmpty()) {
+                precision += (double) relevant / kept.size();
+                withEvidence++;
+            }
+            evidence += kept.size();
+            count++;
+        }
+        return new FilteredMetrics(recall / count, withEvidence == 0 ? 0 : precision / withEvidence, evidence / count);
     }
 
     /**
