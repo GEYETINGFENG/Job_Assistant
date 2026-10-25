@@ -1,5 +1,6 @@
 package com.keny.jobassistant.service;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.keny.jobassistant.exception.BusinessException;
 import com.keny.jobassistant.model.document.ResumeDocumentContent;
@@ -46,7 +47,7 @@ class ResumeParseCacheFailureTest {
         cache = new ResumeParseCacheService(redis, mapper, "test-model", "v1", Duration.ofHours(24));
         RestClient.Builder builder = RestClient.builder().baseUrl("https://llm.test");
         server = MockRestServiceServer.bindTo(builder).build();
-        parser = new BailianResumeParserServiceImpl(builder.build(), mapper, extractor, cache, limiter, "test-model", false, 30000, 4000);
+        parser = new BailianResumeParserServiceImpl(builder.build(), mapper, extractor, cache, limiter, new SimpleMeterRegistry(), "test-model", false, 30000, 4000);
     }
 
     @Test
@@ -93,6 +94,6 @@ class ResumeParseCacheFailureTest {
 
     private void expectModel() {
         server.expect(requestTo("https://llm.test/chat/completions")).andRespond(withSuccess(
-                "{\"choices\":[{\"message\":{\"content\":\"{\\\"name\\\":\\\"Alice\\\"}\"}}]}", MediaType.APPLICATION_JSON));
+                ResumeParseFixtures.chatResponse(ResumeParseFixtures.modelOutput("Alice")), MediaType.APPLICATION_JSON));
     }
 }

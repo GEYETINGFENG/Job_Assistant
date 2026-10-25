@@ -326,6 +326,9 @@ class ResumeUploadTaskStateMachineTest {
         assertThat(session.getStatus()).isEqualTo(ResumeUploadStatus.COMPLETED);
         assertThat(session.getResumeId()).isEqualTo(99L);
         assertThat(session.getVersionNumber()).isEqualTo(1);
+        // 解析消耗的 token 记在上传任务上，按用户归属成本。
+        assertThat(session.getPromptTokens()).isEqualTo(1200);
+        assertThat(session.getCompletionTokens()).isEqualTo(300);
         verify(resumeParserService).parseResume(any(MultipartFile.class));
         verify(s3StorageService).deleteObjectQuietly(claim.processingObjectKey());
         verify(s3StorageService).deleteObjectQuietly(claim.uploadObjectKey());
@@ -375,6 +378,24 @@ class ResumeUploadTaskStateMachineTest {
             assertThat(session.getNextAttemptAt()).isAfter(Instant.now());
             verify(s3StorageService, never()).deleteObjectQuietly(claim.processingObjectKey());
         }
+    }
+
+    /** AI 服务拒绝请求（Key 无效等）重试也不会成功：第一次就进入 DEAD，不浪费剩下的重试次数。 */
+    @Test
+    void rejectedAiRequestShouldGoStraightToDead() throws Exception {
+        enableTransactions();
+        ResumeUploadTaskClaim claim = taskClaim(ResumeUploadType.CREATE, null, 1);
+        ResumeUploadSession session = processingSession(claim);
+        when(taskClaimRepository.claimNext(any(UUID.class))).thenReturn(Optional.of(claim));
+        stubDownload(claim);
+        when(resumeParserService.parseResume(any(MultipartFile.class)))
+                .thenThrow(new BusinessException(ErrorCode.AI_SERVICE_REJECTED, "AI service rejected the request with HTTP 403"));
+        when(uploadSessionRepository.findForUpdateById(claim.uploadId())).thenReturn(Optional.of(session));
+
+        newWorker().processPendingUploads();
+
+        assertThat(session.getStatus()).isEqualTo(ResumeUploadStatus.DEAD);
+        assertThat(session.getLastErrorCode()).isEqualTo(Integer.toString(ErrorCode.AI_SERVICE_REJECTED.getCode()));
     }
 
     /** 即使已是最后一次尝试，限流也只撤销本次领取计数，不使任务进入 DEAD。 */
@@ -629,7 +650,7 @@ class ResumeUploadTaskStateMachineTest {
     private void stubDownloadedPdf(ResumeUploadTaskClaim claim) throws Exception {
         stubDownload(claim);
         when(resumeParserService.parseResume(any(MultipartFile.class))).thenReturn(new ResumeParseResult(
-                JsonNodeFactory.instance.objectNode().put("name", "Keny"), PDF_CONTENT_TYPE, ".pdf"));
+                JsonNodeFactory.instance.objectNode().put("name", "Keny"), PDF_CONTENT_TYPE, ".pdf", 1200, 300));
     }
 
     /** 只模拟下载，让成功、限流和系统故障测试分别指定解析行为。 */

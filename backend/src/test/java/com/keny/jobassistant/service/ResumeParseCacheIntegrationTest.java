@@ -1,5 +1,6 @@
 package com.keny.jobassistant.service;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.keny.jobassistant.exception.BusinessException;
 import com.keny.jobassistant.model.document.ResumeParseResult;
@@ -182,13 +183,13 @@ class ResumeParseCacheIntegrationTest {
 
     private BailianResumeParserServiceImpl parser(ResumeParseCacheService targetCache, String model) {
         var extractor = new TikaResumeDocumentExtractor(100000, 2000, 20971520, 52428800, 100, 1048576);
-        return new BailianResumeParserServiceImpl(client, mapper, extractor, targetCache, limiter, model, false, 30000, 4000);
+        return new BailianResumeParserServiceImpl(client, mapper, extractor, targetCache, limiter, new SimpleMeterRegistry(), model, false, 30000, 4000);
     }
 
     private void expectLlm(int count) throws Exception {
         for (int i = 0; i < count; i++) {
             server.expect(requestTo("https://llm.test/chat/completions"))
-                    .andRespond(withSuccess(response("{\"name\":\"Alice\",\"skills\":[\"Java\"]}"), MediaType.APPLICATION_JSON));
+                    .andRespond(withSuccess(response(ResumeParseFixtures.modelOutput("Alice", "Java")), MediaType.APPLICATION_JSON));
         }
     }
 

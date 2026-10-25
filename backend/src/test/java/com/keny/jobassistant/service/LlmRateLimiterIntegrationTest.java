@@ -1,5 +1,6 @@
 package com.keny.jobassistant.service;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.keny.jobassistant.exception.BusinessException;
 import com.keny.jobassistant.exception.LlmRateLimitedException;
@@ -136,7 +137,7 @@ class LlmRateLimiterIntegrationTest {
     void cachedResultShouldWorkEvenWithEmptyBucket() {
         var fixture = parserFixture();
         fixture.server.expect(requestTo("https://llm.test/chat/completions")).andRespond(withSuccess(
-                "{\"choices\":[{\"message\":{\"content\":\"{\\\"name\\\":\\\"Alice\\\"}\"}}]}", MediaType.APPLICATION_JSON));
+                ResumeParseFixtures.chatResponse(ResumeParseFixtures.modelOutput("Alice")), MediaType.APPLICATION_JSON));
         var first = fixture.parser.parseResume(fixture.file);
         assertThat(allowed(new LlmRateLimiter(redis, 1, 0.0001))).isFalse();
         assertThat(fixture.parser.parseResume(fixture.file)).isEqualTo(first);
@@ -152,7 +153,7 @@ class LlmRateLimiterIntegrationTest {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://llm.test");
         var server = MockRestServiceServer.bindTo(builder).build();
         var parser = new BailianResumeParserServiceImpl(builder.build(), mapper, extractor, cache,
-                new LlmRateLimiter(redis, 1, 0.0001), "test-model", false, 30000, 4000);
+                new LlmRateLimiter(redis, 1, 0.0001), new SimpleMeterRegistry(), "test-model", false, 30000, 4000);
         return new Fixture(parser, server, file);
     }
 
