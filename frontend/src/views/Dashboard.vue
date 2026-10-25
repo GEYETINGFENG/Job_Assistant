@@ -74,7 +74,6 @@ async function handleLogout() {
 <style scoped>
 .dashboard-page {
   min-height: 100vh;
-  background: var(--bg);
 }
 
 /* 半透明毛玻璃导航栏，滚动时停在顶部。 */
