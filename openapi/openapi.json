@@ -1,0 +1,1563 @@
+{
+  "openapi" : "3.0.1",
+  "info" : {
+    "description" : "Unified response: { code, data, message, description }; code = 0 means success.",
+    "title" : "JobAssistant API",
+    "version" : "v1"
+  },
+  "servers" : [ {
+    "url" : "/api"
+  } ],
+  "security" : [ {
+    "bearerAuth" : [ ]
+  } ],
+  "paths" : {
+    "/admin/resume-cache/stats" : {
+      "get" : {
+        "operationId" : "stats",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseResumeCacheStatsDTO"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "resume-cache-admin-controller" ]
+      }
+    },
+    "/admin/users" : {
+      "get" : {
+        "operationId" : "searchUser",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "username",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseListUserDTO"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "admin-controller" ]
+      }
+    },
+    "/admin/users/{id}" : {
+      "delete" : {
+        "operationId" : "deleteUser",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseBoolean"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "admin-controller" ]
+      }
+    },
+    "/applications" : {
+      "get" : {
+        "operationId" : "listApplications",
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseListApplicationDTO"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "application-controller" ]
+      },
+      "post" : {
+        "operationId" : "createApplication",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ApplicationCreateRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseApplicationDTO"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "application-controller" ]
+      }
+    },
+    "/applications/{id}" : {
+      "get" : {
+        "operationId" : "getApplication",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseApplicationDTO"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "application-controller" ]
+      },
+      "patch" : {
+        "operationId" : "updateApplicationStatus",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ApplicationStatusUpdateRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseApplicationDTO"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "application-controller" ]
+      }
+    },
+    "/applications/{id}/events" : {
+      "get" : {
+        "operationId" : "listApplicationEvents",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }, {
+          "in" : "query",
+          "name" : "cursor",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }, {
+          "in" : "query",
+          "name" : "size",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 20
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseApplicationEventPageDTO"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "application-controller" ]
+      }
+    },
+    "/applications/{id}/resume" : {
+      "get" : {
+        "operationId" : "downloadApplicationResume",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "application-controller" ]
+      }
+    },
+    "/resumes" : {
+      "get" : {
+        "operationId" : "listResumes",
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "page",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 0
+          }
+        }, {
+          "in" : "query",
+          "name" : "size",
+          "required" : false,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32",
+            "default" : 20
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseResumeListDTO"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "resume-controller" ]
+      }
+    },
+    "/resumes/uploads/presign" : {
+      "post" : {
+        "operationId" : "createPresignedUpload",
+        "parameters" : [ {
+          "in" : "header",
+          "name" : "Idempotency-Key",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/PresignResumeUploadRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponsePresignResumeUploadResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "resume-upload-controller" ]
+      }
+    },
+    "/resumes/uploads/{uploadId}" : {
+      "get" : {
+        "operationId" : "getUploadStatus",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "uploadId",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseResumeUploadStatusResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "resume-upload-controller" ]
+      }
+    },
+    "/resumes/uploads/{uploadId}/complete" : {
+      "post" : {
+        "operationId" : "completeUpload",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "uploadId",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseResumeUploadCompleteResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "resume-upload-controller" ]
+      }
+    },
+    "/resumes/{id}" : {
+      "delete" : {
+        "operationId" : "deleteResume",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseBoolean"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "resume-controller" ]
+      },
+      "get" : {
+        "operationId" : "getResume",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseResumeDTO"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "resume-controller" ]
+      },
+      "patch" : {
+        "operationId" : "updateResume",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ResumeUpdateRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseResumeDTO"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "resume-controller" ]
+      }
+    },
+    "/resumes/{id}/file" : {
+      "get" : {
+        "operationId" : "downloadResumeFile",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "resume-controller" ]
+      }
+    },
+    "/resumes/{resumeId}/versions" : {
+      "get" : {
+        "operationId" : "listResumeVersions",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "resumeId",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseListResumeVersionSummaryDTO"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "resume-controller" ]
+      }
+    },
+    "/resumes/{resumeId}/versions/uploads/presign" : {
+      "post" : {
+        "operationId" : "createPresignedVersionUpload",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "resumeId",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }, {
+          "in" : "header",
+          "name" : "Idempotency-Key",
+          "required" : true,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/PresignResumeUploadRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponsePresignResumeUploadResponse"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "resume-upload-controller" ]
+      }
+    },
+    "/resumes/{resumeId}/versions/{versionNumber}" : {
+      "get" : {
+        "operationId" : "getResumeVersion",
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "resumeId",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }, {
+          "in" : "path",
+          "name" : "versionNumber",
+          "required" : true,
+          "schema" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseResumeVersionDTO"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "resume-controller" ]
+      }
+    },
+    "/user/login" : {
+      "post" : {
+        "operationId" : "userLogin",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/UserLoginRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseUserLoginVO"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "user-controller" ]
+      }
+    },
+    "/user/logout" : {
+      "post" : {
+        "operationId" : "userLogout",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RefreshTokenRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseInteger"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "user-controller" ]
+      }
+    },
+    "/user/refresh" : {
+      "post" : {
+        "operationId" : "refreshToken",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RefreshTokenRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseTokenRefreshVO"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "user-controller" ]
+      }
+    },
+    "/user/register" : {
+      "post" : {
+        "operationId" : "userRegister",
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/UserRegisterRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/BaseResponseLong"
+                }
+              }
+            },
+            "description" : "OK"
+          }
+        },
+        "tags" : [ "user-controller" ]
+      }
+    }
+  },
+  "components" : {
+    "schemas" : {
+      "ApplicationCreateRequest" : {
+        "type" : "object",
+        "properties" : {
+          "jobId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "resumeVersionId" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "ApplicationDTO" : {
+        "type" : "object",
+        "properties" : {
+          "allowedNextStatuses" : {
+            "uniqueItems" : true,
+            "type" : "array",
+            "items" : {
+              "type" : "string",
+              "enum" : [ "APPLIED", "SCREENING", "INTERVIEW", "OFFER", "ACCEPTED", "REJECTED", "WITHDRAWN" ]
+            }
+          },
+          "applyTime" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "companyName" : {
+            "type" : "string"
+          },
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "jobId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "jobTitle" : {
+            "type" : "string"
+          },
+          "resumeId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "resumeName" : {
+            "type" : "string"
+          },
+          "resumeVersionId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "resumeVersionNumber" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "status" : {
+            "type" : "string",
+            "enum" : [ "APPLIED", "SCREENING", "INTERVIEW", "OFFER", "ACCEPTED", "REJECTED", "WITHDRAWN" ]
+          },
+          "updateTime" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "ApplicationEventDTO" : {
+        "type" : "object",
+        "properties" : {
+          "createTime" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "fromStatus" : {
+            "type" : "string",
+            "enum" : [ "APPLIED", "SCREENING", "INTERVIEW", "OFFER", "ACCEPTED", "REJECTED", "WITHDRAWN" ]
+          },
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "note" : {
+            "type" : "string"
+          },
+          "operatorUserId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "toStatus" : {
+            "type" : "string",
+            "enum" : [ "APPLIED", "SCREENING", "INTERVIEW", "OFFER", "ACCEPTED", "REJECTED", "WITHDRAWN" ]
+          }
+        }
+      },
+      "ApplicationEventPageDTO" : {
+        "type" : "object",
+        "properties" : {
+          "hasNext" : {
+            "type" : "boolean"
+          },
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ApplicationEventDTO"
+            }
+          },
+          "nextCursor" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "ApplicationStatusUpdateRequest" : {
+        "type" : "object",
+        "properties" : {
+          "fromStatus" : {
+            "type" : "string",
+            "enum" : [ "APPLIED", "SCREENING", "INTERVIEW", "OFFER", "ACCEPTED", "REJECTED", "WITHDRAWN" ]
+          },
+          "note" : {
+            "type" : "string"
+          },
+          "toStatus" : {
+            "type" : "string",
+            "enum" : [ "APPLIED", "SCREENING", "INTERVIEW", "OFFER", "ACCEPTED", "REJECTED", "WITHDRAWN" ]
+          }
+        }
+      },
+      "BaseResponseApplicationDTO" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/ApplicationDTO"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "BaseResponseApplicationEventPageDTO" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/ApplicationEventPageDTO"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "BaseResponseBoolean" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "data" : {
+            "type" : "boolean"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "BaseResponseInteger" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "data" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "BaseResponseListApplicationDTO" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "data" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ApplicationDTO"
+            }
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "BaseResponseListResumeVersionSummaryDTO" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "data" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ResumeVersionSummaryDTO"
+            }
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "BaseResponseListUserDTO" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "data" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/UserDTO"
+            }
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "BaseResponseLong" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "data" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "BaseResponsePresignResumeUploadResponse" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PresignResumeUploadResponse"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "BaseResponseResumeCacheStatsDTO" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/ResumeCacheStatsDTO"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "BaseResponseResumeDTO" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/ResumeDTO"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "BaseResponseResumeListDTO" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/ResumeListDTO"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "BaseResponseResumeUploadCompleteResponse" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/ResumeUploadCompleteResponse"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "BaseResponseResumeUploadStatusResponse" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/ResumeUploadStatusResponse"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "BaseResponseResumeVersionDTO" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/ResumeVersionDTO"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "BaseResponseTokenRefreshVO" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/TokenRefreshVO"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "BaseResponseUserLoginVO" : {
+        "type" : "object",
+        "properties" : {
+          "code" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/UserLoginVO"
+          },
+          "description" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          }
+        }
+      },
+      "JsonNode" : {
+        "type" : "object"
+      },
+      "PresignResumeUploadRequest" : {
+        "type" : "object",
+        "properties" : {
+          "fileSize" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "filename" : {
+            "type" : "string"
+          },
+          "resumeName" : {
+            "type" : "string"
+          }
+        }
+      },
+      "PresignResumeUploadResponse" : {
+        "type" : "object",
+        "properties" : {
+          "expiresAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "requiredHeaders" : {
+            "type" : "object",
+            "additionalProperties" : {
+              "type" : "string"
+            }
+          },
+          "uploadId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "uploadUrl" : {
+            "type" : "string"
+          }
+        }
+      },
+      "RefreshTokenRequest" : {
+        "required" : [ "refreshToken" ],
+        "type" : "object",
+        "properties" : {
+          "refreshToken" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ResumeCacheStatsDTO" : {
+        "type" : "object",
+        "properties" : {
+          "hit" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "hitRate" : {
+            "type" : "number",
+            "format" : "double"
+          },
+          "miss" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "modelVersion" : {
+            "type" : "string"
+          },
+          "promptVersion" : {
+            "type" : "string"
+          },
+          "total" : {
+            "type" : "integer",
+            "format" : "int64"
+          }
+        }
+      },
+      "ResumeDTO" : {
+        "type" : "object",
+        "properties" : {
+          "createTime" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "fileUrl" : {
+            "type" : "string"
+          },
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "latestVersionNumber" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "lockVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "parsedJson" : {
+            "$ref" : "#/components/schemas/JsonNode"
+          },
+          "resumeName" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "updateTime" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "ResumeListDTO" : {
+        "type" : "object",
+        "properties" : {
+          "hasNext" : {
+            "type" : "boolean"
+          },
+          "items" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/ResumeSummaryDTO"
+            }
+          },
+          "page" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "size" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "ResumeSummaryDTO" : {
+        "type" : "object",
+        "properties" : {
+          "createTime" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "latestVersionNumber" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "resumeName" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "updateTime" : {
+            "type" : "string",
+            "format" : "date-time"
+          }
+        }
+      },
+      "ResumeUpdateRequest" : {
+        "type" : "object",
+        "properties" : {
+          "lockVersion" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "resumeName" : {
+            "type" : "string"
+          }
+        }
+      },
+      "ResumeUploadCompleteResponse" : {
+        "type" : "object",
+        "properties" : {
+          "resumeId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "status" : {
+            "type" : "string",
+            "enum" : [ "UPLOADING", "PENDING", "PROCESSING", "COMPLETED", "DEAD", "EXPIRED" ]
+          },
+          "uploadId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "versionNumber" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "ResumeUploadStatusResponse" : {
+        "type" : "object",
+        "properties" : {
+          "attemptCount" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "createTime" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "lastErrorCode" : {
+            "type" : "string"
+          },
+          "lastErrorMessage" : {
+            "type" : "string"
+          },
+          "nextAttemptAt" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "resumeId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "status" : {
+            "type" : "string",
+            "enum" : [ "UPLOADING", "PENDING", "PROCESSING", "COMPLETED", "DEAD", "EXPIRED" ]
+          },
+          "updateTime" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "uploadId" : {
+            "type" : "string",
+            "format" : "uuid"
+          },
+          "versionNumber" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "ResumeVersionDTO" : {
+        "type" : "object",
+        "properties" : {
+          "contentJson" : {
+            "$ref" : "#/components/schemas/JsonNode"
+          },
+          "createTime" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "resumeId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "versionNumber" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "ResumeVersionSummaryDTO" : {
+        "type" : "object",
+        "properties" : {
+          "createTime" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "resumeId" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "versionNumber" : {
+            "type" : "integer",
+            "format" : "int32"
+          }
+        }
+      },
+      "TokenRefreshVO" : {
+        "type" : "object",
+        "properties" : {
+          "accessToken" : {
+            "type" : "string"
+          },
+          "expiresIn" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "refreshExpiresIn" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "refreshToken" : {
+            "type" : "string"
+          },
+          "tokenType" : {
+            "type" : "string"
+          }
+        }
+      },
+      "UserDTO" : {
+        "type" : "object",
+        "properties" : {
+          "avatarUrl" : {
+            "type" : "string"
+          },
+          "createTime" : {
+            "type" : "string",
+            "format" : "date-time"
+          },
+          "email" : {
+            "type" : "string"
+          },
+          "gender" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "id" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "phone" : {
+            "type" : "string"
+          },
+          "userAccount" : {
+            "type" : "string"
+          },
+          "userRole" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "userStatus" : {
+            "type" : "integer",
+            "format" : "int32"
+          },
+          "username" : {
+            "type" : "string"
+          }
+        }
+      },
+      "UserLoginRequest" : {
+        "type" : "object",
+        "properties" : {
+          "userAccount" : {
+            "type" : "string"
+          },
+          "userPassword" : {
+            "type" : "string"
+          }
+        }
+      },
+      "UserLoginVO" : {
+        "type" : "object",
+        "properties" : {
+          "accessToken" : {
+            "type" : "string"
+          },
+          "expiresIn" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "refreshExpiresIn" : {
+            "type" : "integer",
+            "format" : "int64"
+          },
+          "refreshToken" : {
+            "type" : "string"
+          },
+          "tokenType" : {
+            "type" : "string"
+          },
+          "user" : {
+            "$ref" : "#/components/schemas/UserDTO"
+          }
+        }
+      },
+      "UserRegisterRequest" : {
+        "type" : "object",
+        "properties" : {
+          "checkPassword" : {
+            "type" : "string"
+          },
+          "userAccount" : {
+            "type" : "string"
+          },
+          "userPassword" : {
+            "type" : "string"
+          }
+        }
+      }
+    },
+    "securitySchemes" : {
+      "bearerAuth" : {
+        "bearerFormat" : "JWT",
+        "scheme" : "bearer",
+        "type" : "http"
+      }
+    }
+  }
+}

@@ -55,11 +55,8 @@ public class GlobalExceptionHandler {
     public ResponseEntity<BaseResponse<?>> dataIntegrityViolationExceptionHandler(
             DataIntegrityViolationException exception) {
         log.warn("Database constraint conflict: {}", exception.getMessage());
-        BaseResponse<?> result = ResultUtils.error(
-                ErrorCode.ACCOUNT_CONFLICT,
-                "The submitted data conflicts with an existing resource"
-        );
-        return ResponseEntity.status(ErrorCode.ACCOUNT_CONFLICT.getHttpStatus()).body(result);
+        BaseResponse<?> result = ResultUtils.error(ErrorCode.DATA_CONFLICT);
+        return ResponseEntity.status(ErrorCode.DATA_CONFLICT.getHttpStatus()).body(result);
     }
 
     /**

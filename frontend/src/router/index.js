@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
 import Login from "../views/Login.vue";
 import Dashboard from "../views/Dashboard.vue";
+import { tokenStorage } from "../auth/tokenStorage";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -30,7 +31,8 @@ const router = createRouter({
 });
 
 router.beforeEach(to => {
-  const hasToken = Boolean(localStorage.getItem("accessToken"));
+  // access token 过期但 refresh token 还在时，仍然算已登录：第一次请求会静默刷新。
+  const hasToken = tokenStorage.hasSession();
 
   if (to.meta.requiresAuth && !hasToken) return { name: "login", query: { redirect: to.fullPath } };
   if (to.name === "login" && hasToken) return { name: "dashboard" };
