@@ -16,6 +16,10 @@ export function getResumeById(id: number) {
     return api("get", "/resumes/{id}", { path: { id } });
 }
 
+export function listResumeVersions(resumeId: number) {
+    return api("get", "/resumes/{resumeId}/versions", { path: { resumeId } });
+}
+
 /**
  * 申请 S3 预签名上传地址。同一次上传重试时复用同一个 idempotencyKey。
  */

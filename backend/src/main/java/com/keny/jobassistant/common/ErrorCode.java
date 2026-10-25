@@ -28,6 +28,8 @@ public enum ErrorCode {
     OPTIMISTIC_LOCK_CONFLICT(40903, HttpStatus.CONFLICT, "Concurrent update conflict", "The resource has been modified by another request"),
     // 其他数据库唯一约束 / 外键冲突。
     DATA_CONFLICT(40904, HttpStatus.CONFLICT, "Data conflict", "The submitted data conflicts with an existing resource"),
+    // 用户当日的匹配额度已用完（LLM 按量付费，按用户设每日预算上限）。
+    QUOTA_EXCEEDED(42900, HttpStatus.TOO_MANY_REQUESTS, "Daily quota exceeded", ""),
     SYSTEM_ERROR(50000, HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error", "");
 
     private final int code;

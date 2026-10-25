@@ -211,3 +211,55 @@ The Vue components stay JavaScript; type checking covers the API and service lay
 cd backend && OPENAPI_UPDATE=true ./mvnw verify -DskipUnitTests -Dit.test=OpenApiContractIntegrationTest
 cd ../frontend && npm run gen:api && npm run typecheck
 ```
+
+---
+
+## 6. Job Matching Pipeline and LLM Generation Layer
+
+`POST /matches` compares one **resume version** with one job description. The LLM call can take seconds and costs money, so it never runs on the request path.
+
+### Async pipeline
+
+`match_record` is a persistent task table (migration `V18`), using the same pattern as the resume upload tasks:
+
+```text
+POST /matches ─ insert PENDING ─> 202 ──> client polls GET /matches/{id}
+                     │
+MatchWorker ─ FOR UPDATE SKIP LOCKED ─> PROCESSING ─ LLM ─> COMPLETED
+                                            │  retryable error, attempts left ─> PENDING (30s, 60s, 120s … backoff)
+                                            └─ non-retryable or attempts used ─> DEAD
+MatchRecoveryCoordinator: PROCESSING older than 5 min ─> PENDING (or DEAD)
+```
+
+- **At-least-once + idempotent processing**: tasks live in the database, so a crash never loses one. Each claim writes a fresh `claim_token`, and results are only saved if the token still matches, so a timed-out worker that finishes late cannot overwrite a newer worker's result.
+- **Graceful shutdown** is shared with the upload worker through `TaskLifecycleGate`: stop claiming, finish in-flight work, then let Spring shut down.
+
+### Idempotency
+
+A unique index on `(resume_version_id, job_id, engine, prompt_version)` means each combination is analysed once:
+
+| Existing record | `POST /matches` returns |
+|-----------------|-------------------------|
+| none | inserts PENDING, **202** |
+| PENDING / PROCESSING | the same task, **202** |
+| COMPLETED | the stored result, **200** (no LLM call) |
+| DEAD | resets to PENDING, **202** (user retry) |
+
+The insert is `INSERT … ON CONFLICT DO NOTHING`. When identical requests race, exactly one inserts and the others read the existing row. The database constraint acts as the result cache, so no separate Redis cache is needed. Changing the prompt bumps `prompt_version`, so old results are never mistaken for new ones.
+
+### LLM generation layer (Lesson 8)
+
+1. **Structured output**: JSON Mode only guarantees valid JSON. `MatchAnalysisValidator` also checks the business shape: integer score 0–100, every field present, arrays of non-empty strings with item-count and length caps, no skill both matched and missing. Failing output counts as a retryable failure.
+2. **Prompt injection**: the job description and resume are untrusted, so they are wrapped in `<job_description>` and `<resume>` tags and the system prompt says to ignore instructions inside them. Prompts cannot fully stop injection, so the design limits the blast radius instead:
+   - The model can only turn text into JSON; it triggers no actions.
+   - Size caps limit how much injected text can reach the result.
+   - "Matched" skills must literally appear in the resume, so "say the candidate is an expert in everything" adds nothing.
+3. **Cost**: `usage.prompt_tokens / completion_tokens` are stored per match (attributed to the user) and exported as the Micrometer counter `llm.tokens{feature=match,type=…}`. A per-user **daily quota** (default 20, `MATCH_DAILY_QUOTA`) is enforced with an atomic Redis Lua script and returns `429 QUOTA_EXCEEDED`.
+   - Only new analyses consume quota; returning an existing result does not.
+   - The counter is incremented *after* the insert succeeds, and exceeding the limit throws inside the same transaction, which rolls the insert back. A racing loser never inserts, so it never consumes quota.
+   - The counter lives in Redis because quota must be shared across instances, and it fails closed if Redis is unavailable.
+4. **Reliability**: timeouts, 5xx, 429 and invalid output are retried with backoff. Other 4xx errors (for example 401/403 from a bad API key) go straight to DEAD as `LLM_REJECTED`, because retrying cannot succeed and would only waste quota. Rate-limiter waits defer the task without counting an attempt.
+
+### Keyword fallback
+
+When AI is disabled (`MATCH_AI_ENABLED` or `RESUME_AI_ENABLED` false), `KeywordMatchAnalyzer` compares the resume's declared skills with the job text using symbol-aware word boundaries (so `Java` does not match `JavaScript`, and `C++` is matched correctly). It also lists common technologies the job mentions but the resume lacks. Results are deterministic, free, and marked `engine = KEYWORD` so the UI can say it ignores experience and seniority. Because `engine` is part of the unique key, keyword results never block a later LLM analysis.

@@ -116,6 +116,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listJobs"];
+        put?: never;
+        post: operations["createJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getJob"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/matches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listMatches"];
+        put?: never;
+        post: operations["createMatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/matches/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getMatch"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/resumes": {
         parameters: {
             query?: never;
@@ -411,6 +475,20 @@ export interface components {
             description?: string;
             message?: string;
         };
+        BaseResponseJobDTO: {
+            /** Format: int32 */
+            code?: number;
+            data?: components["schemas"]["JobDTO"];
+            description?: string;
+            message?: string;
+        };
+        BaseResponseJobPageDTO: {
+            /** Format: int32 */
+            code?: number;
+            data?: components["schemas"]["JobPageDTO"];
+            description?: string;
+            message?: string;
+        };
         BaseResponseListApplicationDTO: {
             /** Format: int32 */
             code?: number;
@@ -437,6 +515,20 @@ export interface components {
             code?: number;
             /** Format: int64 */
             data?: number;
+            description?: string;
+            message?: string;
+        };
+        BaseResponseMatchDTO: {
+            /** Format: int32 */
+            code?: number;
+            data?: components["schemas"]["MatchDTO"];
+            description?: string;
+            message?: string;
+        };
+        BaseResponseMatchPageDTO: {
+            /** Format: int32 */
+            code?: number;
+            data?: components["schemas"]["MatchPageDTO"];
             description?: string;
             message?: string;
         };
@@ -503,7 +595,79 @@ export interface components {
             description?: string;
             message?: string;
         };
+        JobCreateRequest: {
+            companyName?: string;
+            description?: string;
+            jobTitle?: string;
+            location?: string;
+            salary?: string;
+        };
+        JobDTO: {
+            companyName?: string;
+            /** Format: date-time */
+            createTime?: string;
+            description?: string;
+            /** Format: int64 */
+            id?: number;
+            jobTitle?: string;
+            location?: string;
+            salary?: string;
+            /** Format: date-time */
+            updateTime?: string;
+        };
+        JobPageDTO: {
+            hasNext?: boolean;
+            items?: components["schemas"]["JobDTO"][];
+            /** Format: int64 */
+            nextCursor?: number;
+        };
         JsonNode: Record<string, never>;
+        MatchAnalysis: {
+            gaps?: string[];
+            matchedSkills?: string[];
+            missingSkills?: string[];
+            suggestions?: string[];
+            summary?: string;
+        };
+        MatchCreateRequest: {
+            /** Format: int64 */
+            jobId?: number;
+            /** Format: int64 */
+            resumeVersionId?: number;
+        };
+        MatchDTO: {
+            analysis?: components["schemas"]["MatchAnalysis"];
+            /** Format: int32 */
+            attemptCount?: number;
+            /** Format: date-time */
+            createTime?: string;
+            /** @enum {string} */
+            engine?: "LLM" | "KEYWORD";
+            /** Format: int64 */
+            id?: number;
+            /** Format: int64 */
+            jobId?: number;
+            lastErrorCode?: string;
+            lastErrorMessage?: string;
+            /** Format: int64 */
+            resumeId?: number;
+            /** Format: int64 */
+            resumeVersionId?: number;
+            /** Format: int32 */
+            resumeVersionNumber?: number;
+            /** Format: int32 */
+            score?: number;
+            /** @enum {string} */
+            status?: "PENDING" | "PROCESSING" | "COMPLETED" | "DEAD";
+            /** Format: date-time */
+            updateTime?: string;
+        };
+        MatchPageDTO: {
+            hasNext?: boolean;
+            items?: components["schemas"]["MatchDTO"][];
+            /** Format: int64 */
+            nextCursor?: number;
+        };
         PresignResumeUploadRequest: {
             /** Format: int64 */
             fileSize?: number;
@@ -881,6 +1045,145 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    listJobs: {
+        parameters: {
+            query?: {
+                cursor?: number;
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["BaseResponseJobPageDTO"];
+                };
+            };
+        };
+    };
+    createJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["BaseResponseJobDTO"];
+                };
+            };
+        };
+    };
+    getJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["BaseResponseJobDTO"];
+                };
+            };
+        };
+    };
+    listMatches: {
+        parameters: {
+            query: {
+                jobId: number;
+                cursor?: number;
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["BaseResponseMatchPageDTO"];
+                };
+            };
+        };
+    };
+    createMatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MatchCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["BaseResponseMatchDTO"];
+                };
+            };
+        };
+    };
+    getMatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["BaseResponseMatchDTO"];
+                };
             };
         };
     };
