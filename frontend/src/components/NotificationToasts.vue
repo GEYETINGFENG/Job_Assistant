@@ -16,43 +16,66 @@ const notifications = useNotificationStore();
 <style scoped>
 .toast-stack {
   position: fixed;
-  top: 20px;
+  top: 64px;
   right: 20px;
   z-index: 1000;
   display: grid;
   gap: 10px;
-  width: min(380px, calc(100vw - 40px));
+  width: min(360px, calc(100vw - 32px));
 }
 
+/* 毛玻璃浮层，颜色只用在左侧的圆点上。 */
 .toast {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 14px 16px;
+  color: var(--text);
   font-size: 14px;
-  border-radius: 10px;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.15);
+  line-height: 1.4;
+  background: var(--nav-bg);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-radius: 14px;
+  box-shadow: var(--shadow-float);
 }
 
-.toast-error {
-  color: #b91c1c;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+.toast span::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 10px;
+  vertical-align: 1px;
+  border-radius: 50%;
 }
 
-.toast-info {
-  color: #1e40af;
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
+.toast-error span::before {
+  background: var(--danger);
+}
+
+.toast-info span::before {
+  background: var(--accent);
 }
 
 .toast button {
   padding: 0;
-  color: inherit;
+  color: var(--text-tertiary);
   font-size: 18px;
   line-height: 1;
   background: none;
   border: 0;
+}
+
+.toast button:hover {
+  color: var(--text);
+}
+
+@media (max-width: 640px) {
+  .toast-stack {
+    right: 16px;
+    top: 60px;
+  }
 }
 </style>

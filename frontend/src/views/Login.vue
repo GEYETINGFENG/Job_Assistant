@@ -52,26 +52,27 @@ async function handleLogin() {
   <main class="login-page">
     <section class="login-card">
       <div class="brand">
-        <div class="brand-icon">J</div>
-        <h1>JobAssistant</h1>
+        <span class="wordmark">JobAssistant</span>
+        <h1>Sign in</h1>
         <p>Manage resumes, jobs and applications in one place.</p>
       </div>
 
       <form class="login-form" @submit.prevent="handleLogin">
-        <div class="field">
-          <label for="userAccount">User Account</label>
-          <input id="userAccount" v-model="form.userAccount" type="text" autocomplete="username" placeholder="Enter your account">
-        </div>
-
-        <div class="field">
-          <label for="userPassword">Password</label>
-          <input id="userPassword" v-model="form.userPassword" type="password" autocomplete="current-password" placeholder="Enter your password">
+        <div class="field-group">
+          <label class="field">
+            <span>Account</span>
+            <input id="userAccount" v-model="form.userAccount" type="text" autocomplete="username" placeholder="Account">
+          </label>
+          <label class="field">
+            <span>Password</span>
+            <input id="userPassword" v-model="form.userPassword" type="password" autocomplete="current-password" placeholder="Password">
+          </label>
         </div>
 
         <p v-if="sessionExpired && !errorMessage" class="info-message">Your session has expired. Please sign in again.</p>
-        <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
+        <p v-if="errorMessage" class="error-message" role="alert">{{ errorMessage }}</p>
 
-        <button type="submit" :disabled="loading">{{ loading ? "Signing in..." : "Sign In" }}</button>
+        <button class="submit" type="submit" :disabled="loading">{{ loading ? "Signing in…" : "Sign In" }}</button>
       </form>
     </section>
   </main>
@@ -82,121 +83,127 @@ async function handleLogin() {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  padding: 24px;
-  background: linear-gradient(135deg, #eff6ff 0%, #f8fafc 45%, #eef2ff 100%);
+  padding: 24px 16px;
+  background: var(--bg);
 }
 
 .login-card {
   width: 100%;
-  max-width: 410px;
-  padding: 36px;
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid #e5e7eb;
-  border-radius: 18px;
-  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.12);
+  max-width: 400px;
 }
 
 .brand {
-  margin-bottom: 28px;
+  margin-bottom: 32px;
   text-align: center;
 }
 
-.brand-icon {
-  width: 48px;
-  height: 48px;
-  display: grid;
-  place-items: center;
-  margin: 0 auto 14px;
-  color: #ffffff;
-  font-size: 22px;
-  font-weight: 800;
-  background: #2563eb;
-  border-radius: 14px;
+.wordmark {
+  color: var(--text-secondary);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .brand h1 {
-  margin: 0;
-  color: #111827;
-  font-size: 30px;
+  margin: 10px 0 0;
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
 }
 
 .brand p {
-  margin: 9px 0 0;
-  color: #6b7280;
-  font-size: 14px;
-  line-height: 1.6;
+  margin: 10px 0 0;
+  color: var(--text-secondary);
+  font-size: 17px;
+  line-height: 1.45;
 }
 
 .login-form {
   display: grid;
-  gap: 18px;
+  gap: 16px;
+}
+
+/* 两个输入框拼成一组，中间一条细线，和 Apple 账号登录页一致。 */
+.field-group {
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
 }
 
 .field {
-  display: grid;
-  gap: 7px;
+  display: block;
 }
 
-.field label {
-  color: #374151;
-  font-size: 14px;
-  font-weight: 600;
+.field + .field {
+  border-top: 1px solid var(--hairline);
+}
+
+.field span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
 }
 
 .field input {
   width: 100%;
-  height: 46px;
-  padding: 0 13px;
-  color: #111827;
-  background: #ffffff;
-  border: 1px solid #d1d5db;
-  border-radius: 9px;
-  outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-.field input:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
-}
-
-.login-form button {
-  height: 46px;
-  color: #ffffff;
-  font-weight: 700;
-  background: #2563eb;
+  height: 56px;
+  padding: 0 16px;
+  color: var(--text);
+  font-size: 17px;
+  background: transparent;
   border: 0;
-  border-radius: 9px;
-  transition: background 0.2s, transform 0.2s;
+  outline: none;
 }
 
-.login-form button:hover:not(:disabled) {
-  background: #1d4ed8;
-  transform: translateY(-1px);
+.field input::placeholder {
+  color: var(--text-tertiary);
 }
 
-.login-form button:disabled {
+.field:focus-within {
+  position: relative;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.submit {
+  height: 50px;
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 500;
+  background: var(--accent);
+  border: 0;
+  border-radius: var(--radius-pill);
+  transition: background 0.2s, opacity 0.2s;
+}
+
+.submit:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.submit:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--focus-ring);
+}
+
+.submit:disabled {
   cursor: not-allowed;
-  opacity: 0.65;
+  opacity: 0.4;
+}
+
+.info-message, .error-message {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  text-align: center;
 }
 
 .info-message {
-  margin: 0;
-  padding: 10px 12px;
-  color: #1e40af;
-  font-size: 13px;
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  border-radius: 8px;
+  color: var(--text-secondary);
 }
 
 .error-message {
-  margin: 0;
-  padding: 10px 12px;
-  color: #b91c1c;
-  font-size: 13px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: 8px;
+  color: var(--danger);
 }
 </style>

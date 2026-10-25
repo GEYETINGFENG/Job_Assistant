@@ -90,24 +90,28 @@ function formatTime(value) {
     </div>
 
     <template v-else>
-      <ul class="resume-list" :class="{ dimmed: listLoading }">
+      <ul class="grouped-list" :class="{ dimmed: listLoading }">
         <li v-for="item in items" :key="item.id">
           <button
             type="button"
-            class="resume-item"
+            class="list-row"
             :class="{ active: selected?.id === item.id }"
+            :aria-pressed="selected?.id === item.id"
             @click="selectResume(item.id)"
           >
-            <strong>{{ item.resumeName || "Untitled resume" }}</strong>
-            <span>v{{ item.latestVersionNumber }} · updated {{ formatTime(item.updateTime) }}</span>
+            <span class="list-row-text">
+              <strong>{{ item.resumeName || "Untitled resume" }}</strong>
+              <span>Version {{ item.latestVersionNumber }} · {{ formatTime(item.updateTime) }}</span>
+            </span>
+            <span v-if="selected?.id === item.id" class="list-row-check" aria-hidden="true">✓</span>
           </button>
         </li>
       </ul>
 
       <div class="pager">
-        <button class="secondary-button" type="button" :disabled="page === 0 || listLoading" @click="loadList(page - 1)">Previous</button>
+        <button class="pager-button" type="button" :disabled="page === 0 || listLoading" @click="loadList(page - 1)">‹ Previous</button>
         <span>Page {{ page + 1 }}</span>
-        <button class="secondary-button" type="button" :disabled="!hasNext || listLoading" @click="loadList(page + 1)">Next</button>
+        <button class="pager-button" type="button" :disabled="!hasNext || listLoading" @click="loadList(page + 1)">Next ›</button>
       </div>
     </template>
 
@@ -122,7 +126,7 @@ function formatTime(value) {
     <div v-else-if="selected" class="result-card">
       <div class="result-heading">
         <h3>{{ selected.resumeName || "Resume" }}</h3>
-        <span>ID {{ selected.id }} · v{{ selected.latestVersionNumber }}</span>
+        <span>ID {{ selected.id }} · Version {{ selected.latestVersionNumber }}</span>
       </div>
       <h4>Parsed content</h4>
       <pre v-if="selected.parsedJson">{{ JSON.stringify(selected.parsedJson, null, 2) }}</pre>
@@ -139,91 +143,85 @@ function formatTime(value) {
   gap: 12px;
 }
 
-.resume-list {
-  display: grid;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+.grouped-list {
   transition: opacity 0.2s;
 }
 
-.resume-list.dimmed {
-  opacity: 0.6;
-}
-
-.resume-item {
-  width: 100%;
-  display: grid;
-  gap: 4px;
-  padding: 12px 14px;
-  text-align: left;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-}
-
-.resume-item:hover {
-  border-color: #93c5fd;
-}
-
-.resume-item.active {
-  background: #eff6ff;
-  border-color: #2563eb;
-}
-
-.resume-item span {
-  color: #6b7280;
-  font-size: 13px;
+.grouped-list.dimmed {
+  opacity: 0.5;
 }
 
 .pager {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 14px;
-  color: #6b7280;
+  margin-top: 12px;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 
+.pager-button {
+  padding: 6px 2px;
+  color: var(--accent);
+  font-size: 14px;
+  background: none;
+  border: 0;
+}
+
+.pager-button:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.pager-button:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
 .result-card {
-  margin-top: 20px;
-  padding: 18px;
-  background: #f8fafc;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
+  margin-top: 24px;
+  padding-top: 22px;
+  border-top: 1px solid var(--separator);
 }
 
 .result-heading {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: 16px;
 }
 
 .result-heading h3 {
   margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
-.result-heading span, .muted {
-  color: #6b7280;
+.result-heading span {
+  flex: none;
+  color: var(--text-secondary);
   font-size: 13px;
 }
 
 .result-card h4 {
-  margin: 16px 0 8px;
+  margin: 18px 0 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .result-card pre {
   max-height: 300px;
   margin: 0;
-  padding: 14px;
+  padding: 16px;
   overflow: auto;
-  color: #e5e7eb;
-  background: #111827;
-  border-radius: 8px;
-  font-family: Consolas, Monaco, monospace;
+  color: var(--code-text);
+  background: var(--code-bg);
+  border-radius: var(--radius-control);
+  font-family: var(--font-mono);
   font-size: 12px;
-  line-height: 1.55;
+  line-height: 1.6;
 }
 </style>

@@ -177,27 +177,3 @@ onBeforeUnmount(() => controller?.abort());
     </div>
   </article>
 </template>
-
-<style scoped>
-.field-error {
-  margin: 0;
-  color: #b91c1c;
-  font-size: 13px;
-}
-
-.spinner {
-  width: 18px;
-  height: 18px;
-  flex: none;
-  border: 2px solid #bfdbfe;
-  border-top-color: #2563eb;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-</style>

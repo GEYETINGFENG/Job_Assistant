@@ -45,6 +45,11 @@ const SECTION_LABELS = {
 const requirements = computed(() => match.value?.analysis?.requirements ?? []);
 const coveredCount = computed(() => requirements.value.filter(item => item.covered).length);
 
+// 分数圆环：周长 2πr，按分数比例露出描边。
+const RING_RADIUS = 52;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+const ringOffset = computed(() => RING_CIRCUMFERENCE * (1 - Math.min(100, Math.max(0, match.value?.score ?? 0)) / 100));
+
 const scoreClass = computed(() => {
   const score = match.value?.score ?? 0;
   if (score >= 70) return "score-high";
@@ -202,11 +207,20 @@ onBeforeUnmount(() => controller?.abort());
     </div>
 
     <section v-else-if="phase === 'completed' && match" class="result">
-      <div class="score" :class="scoreClass">
-        <span class="score-value">{{ match.score }}</span>
-        <span class="score-label">/ 100</span>
+      <div class="score-row">
+        <div class="score" :class="scoreClass" role="img" :aria-label="`Match score ${match.score} out of 100`">
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <circle class="ring-track" cx="60" cy="60" :r="RING_RADIUS" />
+            <circle class="ring-value" cx="60" cy="60" :r="RING_RADIUS"
+                    :stroke-dasharray="RING_CIRCUMFERENCE" :stroke-dashoffset="ringOffset" />
+          </svg>
+          <span class="score-value">{{ match.score }}</span>
+        </div>
+        <div class="score-text">
+          <span class="score-caption">Match score</span>
+          <p class="summary">{{ match.analysis?.summary }}</p>
+        </div>
       </div>
-      <p class="summary">{{ match.analysis?.summary }}</p>
       <p v-if="match.engine === 'KEYWORD'" class="engine-note">
         Keyword comparison only — AI analysis is turned off, so experience and seniority are not considered.
       </p>
@@ -243,11 +257,11 @@ onBeforeUnmount(() => controller?.abort());
       </template>
 
       <template v-if="requirements.length">
-        <h4>Requirement coverage <span class="coverage-count">{{ coveredCount }} of {{ requirements.length }}</span></h4>
+        <h4>Requirement coverage <span class="coverage-count">{{ coveredCount }} of {{ requirements.length }} covered</span></h4>
         <ul class="requirements">
           <li v-for="item in requirements" :key="item.requirement" :class="item.covered ? 'covered' : 'uncovered'">
             <div class="requirement-line">
-              <span class="requirement-mark" :aria-label="item.covered ? 'Covered' : 'Not found'">{{ item.covered ? "✓" : "✗" }}</span>
+              <span class="requirement-mark" :aria-label="item.covered ? 'Covered' : 'Not found'">{{ item.covered ? "✓" : "" }}</span>
               <span>{{ item.requirement }}</span>
             </div>
             <blockquote v-if="item.covered && item.evidence?.length" class="evidence">
@@ -270,7 +284,7 @@ onBeforeUnmount(() => controller?.abort());
 .form-row {
   display: grid;
   grid-template-columns: 2fr 1fr;
-  gap: 10px;
+  gap: 12px;
 }
 
 .form-row > div {
@@ -278,94 +292,111 @@ onBeforeUnmount(() => controller?.abort());
   gap: 10px;
 }
 
-select {
-  width: 100%;
-  padding: 10px 12px;
-  color: #111827;
-  background: #ffffff;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  font: inherit;
-}
-
-.spinner {
-  width: 18px;
-  height: 18px;
-  flex: none;
-  border: 2px solid #bfdbfe;
-  border-top-color: #2563eb;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 .result {
-  margin-top: 20px;
+  margin-top: 28px;
+  padding-top: 28px;
+  border-top: 1px solid var(--separator);
+}
+
+/* ---------- 分数：Apple Fitness 风格的圆环 ---------- */
+
+.score-row {
+  display: flex;
+  align-items: center;
+  gap: 22px;
 }
 
 .score {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
+  --ring: var(--system-red);
+  position: relative;
+  width: 112px;
+  height: 112px;
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+
+.score-high {
+  --ring: var(--system-green);
+}
+
+.score-medium {
+  --ring: var(--system-orange);
+}
+
+.score svg {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-90deg);
+}
+
+.score circle {
+  fill: none;
+  stroke-width: 10;
+}
+
+.ring-track {
+  stroke: var(--surface-muted);
+}
+
+.ring-value {
+  stroke: var(--ring);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.8s cubic-bezier(0.25, 0.1, 0.25, 1);
 }
 
 .score-value {
-  font-size: 44px;
-  font-weight: 800;
-  line-height: 1;
+  position: relative;
+  font-size: 34px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
-.score-label {
-  color: #6b7280;
+.score-text {
+  min-width: 0;
 }
 
-.score-high .score-value {
-  color: #15803d;
-}
-
-.score-medium .score-value {
-  color: #b45309;
-}
-
-.score-low .score-value {
-  color: #b91c1c;
+.score-caption {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .summary {
-  margin: 10px 0 0;
-  color: #374151;
+  margin: 6px 0 0;
+  color: var(--text);
+  font-size: 15px;
   line-height: 1.5;
 }
 
 .engine-note {
-  margin: 10px 0 0;
-  padding: 8px 10px;
-  color: #92400e;
+  margin: 16px 0 0;
+  padding: 10px 14px;
+  color: var(--warning);
   font-size: 13px;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  border-radius: 8px;
+  line-height: 1.45;
+  background: var(--warning-soft);
+  border-radius: var(--radius-control);
 }
+
+/* ---------- 技能、差距、建议 ---------- */
 
 .skill-groups {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  margin-top: 16px;
+  gap: 20px;
+  margin-top: 8px;
 }
 
 h4 {
-  margin: 16px 0 8px;
-  font-size: 14px;
-}
-
-.skill-groups h4 {
-  margin-top: 0;
+  margin: 28px 0 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .chips {
@@ -378,100 +409,124 @@ h4 {
 }
 
 .chip {
-  padding: 4px 10px;
+  padding: 5px 12px;
   font-size: 13px;
-  border-radius: 999px;
+  font-weight: 500;
+  border-radius: var(--radius-pill);
 }
 
 .chip-match {
-  color: #166534;
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
+  color: var(--success);
+  background: var(--success-soft);
 }
 
 .chip-missing {
-  color: #b91c1c;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  color: var(--danger);
+  background: var(--danger-soft);
 }
 
 .notes {
+  display: grid;
+  gap: 8px;
   margin: 0;
   padding-left: 18px;
-  color: #374151;
-  line-height: 1.6;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.5;
 }
+
+.notes li::marker {
+  color: var(--text-tertiary);
+}
+
+/* ---------- 要求覆盖 ---------- */
 
 .coverage-count {
   margin-left: 6px;
-  color: #6b7280;
-  font-weight: 400;
+  color: var(--text-tertiary);
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .requirements {
-  display: grid;
-  gap: 10px;
   margin: 0;
   padding: 0;
+  overflow: hidden;
   list-style: none;
+  background: var(--surface-muted);
+  border-radius: var(--radius-control);
+}
+
+.requirements li {
+  padding: 14px 16px;
+}
+
+.requirements li + li {
+  border-top: 1px solid var(--separator);
 }
 
 .requirement-line {
   display: flex;
-  gap: 8px;
-  color: #111827;
-  font-size: 14px;
-  line-height: 1.5;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.45;
 }
 
 .requirement-mark {
+  width: 20px;
+  height: 20px;
   flex: none;
-  width: 18px;
+  display: grid;
+  place-items: center;
+  margin-top: 1px;
+  color: #ffffff;
+  font-size: 11px;
   font-weight: 700;
+  border-radius: 50%;
 }
 
 .covered .requirement-mark {
-  color: #15803d;
+  background: var(--system-green);
 }
 
 .uncovered .requirement-mark {
-  color: #b91c1c;
+  color: var(--text-tertiary);
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--hairline);
 }
 
 .evidence {
-  margin: 6px 0 0 26px;
-  padding: 8px 10px;
-  color: #374151;
+  margin: 8px 0 0 30px;
+  color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.5;
   white-space: pre-line;
-  background: #f8fafc;
-  border-left: 3px solid #93c5fd;
-  border-radius: 4px;
 }
 
 .evidence-meta {
   display: block;
-  margin-bottom: 2px;
-  color: #6b7280;
+  margin-bottom: 3px;
+  color: var(--text-tertiary);
   font-size: 12px;
 }
 
 .evidence-missing {
-  margin: 4px 0 0 26px;
-  color: #9ca3af;
-  font-size: 13px;
-}
-
-.muted {
-  margin: 0;
-  color: #9ca3af;
+  margin: 4px 0 0 30px;
+  color: var(--text-tertiary);
   font-size: 13px;
 }
 
 @media (max-width: 640px) {
   .form-row, .skill-groups {
     grid-template-columns: 1fr;
+  }
+
+  .score-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
   }
 }
 </style>
