@@ -1,9 +1,97 @@
+/* ---------- 设计变量：参考 Apple 官网的简约风格，浅色 / 深色两套 ---------- */
+
 :root {
-  font-family: Inter, "Segoe UI", Arial, sans-serif;
-  color: #111827;
-  background: #f5f7fb;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --surface-muted: #f5f5f7;
+  --text: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --text-tertiary: #86868b;
+  --hairline: #d2d2d7;
+  --separator: rgba(0, 0, 0, 0.08);
+  --accent: #0071e3;
+  --accent-hover: #0077ed;
+  --accent-soft: rgba(0, 113, 227, 0.1);
+  --focus-ring: rgba(0, 113, 227, 0.35);
+  --success: #248a3d;
+  --success-soft: rgba(52, 199, 89, 0.12);
+  --warning: #b25000;
+  --warning-soft: rgba(255, 149, 0, 0.12);
+  --danger: #d70015;
+  --danger-soft: rgba(255, 59, 48, 0.1);
+  /* 系统色：用于图形（圆环、圆点），比上面的文字色更鲜亮。 */
+  --system-green: #34c759;
+  --system-orange: #ff9500;
+  --system-red: #ff3b30;
+  --nav-bg: rgba(251, 251, 253, 0.72);
+  /* 磨砂玻璃卡片：半透明，透出背后的光晕。 */
+  --card-bg: rgba(255, 255, 255, 0.72);
+  --card-border: rgba(255, 255, 255, 0.6);
+  /* 背景光晕（macOS 壁纸 / Apple 产品页那种很淡的彩色渐变）。 */
+  --glow-1: rgba(0, 113, 227, 0.3);
+  --glow-2: rgba(175, 82, 222, 0.26);
+  --glow-3: rgba(255, 149, 0, 0.2);
+  --glow-4: rgba(52, 199, 89, 0.16);
+  --code-bg: #1d1d1f;
+  --code-text: #f5f5f7;
+  --shadow-card: 0 2px 12px rgba(0, 0, 0, 0.04);
+  --shadow-float: 0 12px 40px rgba(0, 0, 0, 0.12);
+
+  --radius-card: 18px;
+  --radius-control: 12px;
+  --radius-pill: 980px;
+
+  color-scheme: light;
+  font-family: var(--font-sans);
+  color: var(--text);
+  background: var(--bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --surface: #1c1c1e;
+    --surface-muted: #2c2c2e;
+    --text: #f5f5f7;
+    --text-secondary: #a1a1a6;
+    --text-tertiary: #8e8e93;
+    --hairline: #424245;
+    --separator: rgba(255, 255, 255, 0.1);
+    --accent: #2997ff;
+    --accent-hover: #47a6ff;
+    --accent-soft: rgba(41, 151, 255, 0.16);
+    --focus-ring: rgba(41, 151, 255, 0.45);
+    --success: #30d158;
+    --success-soft: rgba(48, 209, 88, 0.16);
+    --warning: #ff9f0a;
+    --warning-soft: rgba(255, 159, 10, 0.16);
+    --danger: #ff453a;
+    --danger-soft: rgba(255, 69, 58, 0.16);
+    --system-green: #30d158;
+    --system-orange: #ff9f0a;
+    --system-red: #ff453a;
+    --nav-bg: rgba(22, 22, 23, 0.72);
+    --card-bg: rgba(28, 28, 30, 0.7);
+    --card-border: rgba(255, 255, 255, 0.06);
+    --glow-1: rgba(10, 132, 255, 0.32);
+    --glow-2: rgba(191, 90, 242, 0.26);
+    --glow-3: rgba(255, 55, 95, 0.16);
+    --glow-4: rgba(48, 209, 88, 0.1);
+    --code-bg: #2c2c2e;
+    --code-text: #f5f5f7;
+    --shadow-card: none;
+    --shadow-float: 0 12px 40px rgba(0, 0, 0, 0.5);
+
+    color-scheme: dark;
+  }
 }
 
 * {
@@ -16,41 +104,73 @@ html, body, #app {
   margin: 0;
 }
 
+/* body 保持透明：它的背景会画在 z-index: -1 的光晕层上面，把光晕盖住（底色由 :root 提供）。 */
 body {
   min-height: 100vh;
+  background: transparent;
 }
 
-button, input, textarea {
+/* 固定在窗口上的背景光晕：不随内容滚动，也不参与布局。 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 65% at 5% 0%, var(--glow-1), transparent 72%),
+    radial-gradient(55% 60% at 95% 5%, var(--glow-2), transparent 72%),
+    radial-gradient(60% 60% at 80% 100%, var(--glow-3), transparent 72%),
+    radial-gradient(55% 55% at 15% 95%, var(--glow-4), transparent 72%),
+    var(--bg);
+}
+
+button, input, textarea, select {
   font: inherit;
 }
 
 button {
   cursor: pointer;
 }
+
 /* ---------- 面板、表单、按钮（多个组件共用） ---------- */
 
 .panel {
-  padding: 24px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 14px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+  padding: 28px;
+  background: var(--card-bg);
+  backdrop-filter: saturate(180%) blur(30px);
+  -webkit-backdrop-filter: saturate(180%) blur(30px);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+
+/* 系统开启"降低透明度"时退回不透明卡片。 */
+@media (prefers-reduced-transparency: reduce) {
+  .panel {
+    background: var(--surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
 }
 
 .panel-heading {
-  margin-bottom: 20px;
+  margin-bottom: 22px;
 }
 
 .panel-heading h2 {
   margin: 0;
-  color: #111827;
-  font-size: 20px;
+  color: var(--text);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
 }
 
 .panel-heading p {
   margin: 6px 0 0;
-  color: #6b7280;
-  font-size: 13px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.45;
 }
 
 .form {
@@ -59,56 +179,200 @@ button {
 }
 
 .form label {
-  color: #374151;
-  font-size: 13px;
-  font-weight: 700;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
 }
 
-.form input {
+.form input, .form textarea, .form select {
   width: 100%;
-  padding: 11px 12px;
-  color: #111827;
-  background: #ffffff;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
+  min-height: 44px;
+  padding: 10px 14px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
   outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.form input:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+.form textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.form select {
+  appearance: none;
+  padding-right: 36px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%2386868b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+}
+
+.form input[type="file"] {
+  padding: 9px 10px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.form input[type="file"]::file-selector-button {
+  margin-right: 12px;
+  padding: 6px 14px;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 500;
+  background: var(--accent-soft);
+  border: 0;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+
+.form input::placeholder, .form textarea::placeholder {
+  color: var(--text-tertiary);
+}
+
+.form input:focus, .form textarea:focus, .form select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--focus-ring);
+}
+
+.form input:disabled, .form textarea:disabled, .form select:disabled {
+  opacity: 0.6;
 }
 
 .primary-button, .secondary-button {
   min-height: 40px;
-  padding: 0 16px;
-  font-weight: 700;
-  border-radius: 8px;
+  padding: 0 20px;
+  font-size: 15px;
+  font-weight: 500;
+  border-radius: var(--radius-pill);
+  transition: background 0.2s, opacity 0.2s;
+}
+
+.form .primary-button {
+  justify-self: start;
+  margin-top: 8px;
 }
 
 .primary-button {
   color: #ffffff;
-  background: #2563eb;
+  background: var(--accent);
   border: 0;
 }
 
 .primary-button:hover:not(:disabled) {
-  background: #1d4ed8;
+  background: var(--accent-hover);
 }
 
 .secondary-button {
-  color: #1f2937;
-  background: #ffffff;
-  border: 1px solid #d1d5db;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 0;
 }
 
 .secondary-button:hover:not(:disabled) {
-  background: #f3f4f6;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .primary-button:disabled, .secondary-button:disabled {
   cursor: not-allowed;
-  opacity: 0.6;
+  opacity: 0.4;
+}
+
+.primary-button:focus-visible, .secondary-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px var(--focus-ring);
+}
+
+.field-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 13px;
+}
+
+.muted {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 14px;
+}
+
+@media (max-width: 640px) {
+  .panel {
+    padding: 22px 18px;
+  }
+
+  .panel-heading h2 {
+    font-size: 21px;
+  }
+}
+
+/* ---------- 分组列表：iOS 设置页风格，行之间用细线分隔 ---------- */
+
+.grouped-list {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+  background: var(--surface-muted);
+  border-radius: var(--radius-control);
+}
+
+.grouped-list li + li .list-row {
+  box-shadow: inset 0 1px 0 var(--separator);
+}
+
+.list-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 16px;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  transition: background 0.15s;
+}
+
+.list-row:hover {
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+
+.list-row:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.list-row.active {
+  background: var(--accent-soft);
+}
+
+.list-row-text {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.list-row-text strong {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.list-row-text span {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.list-row-check {
+  flex: none;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 600;
 }
 
 /* ---------- 异步状态：loading / error / empty / success / warning ---------- */
@@ -121,43 +385,69 @@ button {
   margin-top: 18px;
   padding: 14px 16px;
   font-size: 14px;
-  border-radius: 10px;
+  border-radius: var(--radius-control);
+}
+
+.state-box strong {
+  font-weight: 600;
 }
 
 .state-box p {
-  margin: 4px 0 0;
+  margin: 3px 0 0;
   font-size: 13px;
+  opacity: 0.85;
 }
 
 .state-loading {
   justify-content: flex-start;
-  color: #1e40af;
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
+  color: var(--text-secondary);
+  background: var(--surface-muted);
 }
 
 .state-success {
-  color: #166534;
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
+  color: var(--success);
+  background: var(--success-soft);
 }
 
 .state-error {
-  color: #b91c1c;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  color: var(--danger);
+  background: var(--danger-soft);
 }
 
 .state-warning {
-  color: #92400e;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
+  color: var(--warning);
+  background: var(--warning-soft);
 }
 
 .state-empty {
   justify-content: center;
   padding: 36px 18px;
-  color: #9ca3af;
-  background: #f9fafb;
-  border: 1px dashed #d1d5db;
+  color: var(--text-tertiary);
+  background: var(--surface-muted);
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border: 2px solid var(--hairline);
+  border-top-color: var(--text-secondary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+
+  .spinner {
+    animation-duration: 2s;
+  }
 }

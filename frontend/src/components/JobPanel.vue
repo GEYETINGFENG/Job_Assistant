@@ -103,11 +103,15 @@ onMounted(() => loadJobs());
     <div v-else-if="!jobs.length" class="state-box state-empty"><span>No jobs yet. Save one above.</span></div>
 
     <template v-else>
-      <ul class="job-list">
+      <ul class="grouped-list job-list">
         <li v-for="job in jobs" :key="job.id">
-          <button type="button" class="job-item" :class="{ active: job.id === selectedJobId }" @click="emit('select', job)">
-            <strong>{{ job.jobTitle }}</strong>
-            <span>{{ job.companyName }}<template v-if="job.location"> · {{ job.location }}</template></span>
+          <button type="button" class="list-row" :class="{ active: job.id === selectedJobId }"
+                  :aria-pressed="job.id === selectedJobId" @click="emit('select', job)">
+            <span class="list-row-text">
+              <strong>{{ job.jobTitle }}</strong>
+              <span>{{ job.companyName }}<template v-if="job.location"> · {{ job.location }}</template></span>
+            </span>
+            <span v-if="job.id === selectedJobId" class="list-row-check" aria-hidden="true">✓</span>
           </button>
         </li>
       </ul>
@@ -124,7 +128,7 @@ onMounted(() => loadJobs());
 .form-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 
 .form-row > div {
@@ -132,65 +136,17 @@ onMounted(() => loadJobs());
   gap: 10px;
 }
 
-.form textarea {
-  width: 100%;
-  padding: 11px 12px;
-  color: #111827;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  outline: none;
-  resize: vertical;
-  font-family: inherit;
-  line-height: 1.5;
-}
-
-.form textarea:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-}
-
-.field-error {
-  margin: 0;
-  color: #b91c1c;
-  font-size: 13px;
-}
-
 .list-title {
-  margin: 24px 0 0;
-  font-size: 15px;
+  margin: 32px 0 0;
+  padding-top: 24px;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  border-top: 1px solid var(--separator);
 }
 
 .job-list {
-  display: grid;
-  gap: 8px;
-  margin: 12px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.job-item {
-  width: 100%;
-  display: grid;
-  gap: 4px;
-  padding: 12px 14px;
-  text-align: left;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-}
-
-.job-item:hover {
-  border-color: #93c5fd;
-}
-
-.job-item.active {
-  background: #eff6ff;
-  border-color: #2563eb;
-}
-
-.job-item span {
-  color: #6b7280;
-  font-size: 13px;
+  margin-top: 14px;
 }
 
 .load-more {

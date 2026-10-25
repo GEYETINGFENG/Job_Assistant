@@ -35,132 +35,249 @@ async function handleLogout() {
 </script>
 
 <template>
-  <main class="dashboard-page">
-    <header class="topbar">
-      <div>
-        <h1>JobAssistant</h1>
-        <p>Resume and career management dashboard</p>
-      </div>
-
-      <div class="user-actions">
-        <div class="user-summary">
-          <strong>{{ displayName }}</strong>
-          <span>{{ displayRole }}</span>
+  <div class="dashboard-page">
+    <header class="nav">
+      <div class="nav-inner">
+        <span class="wordmark">JobAssistant</span>
+        <div class="nav-user">
+          <span class="nav-name">{{ displayName }}<span class="nav-role"> · {{ displayRole }}</span></span>
+          <button class="nav-link" type="button" :disabled="loggingOut" @click="handleLogout">Sign out</button>
         </div>
-        <button class="logout-button" :disabled="loggingOut" @click="handleLogout">Logout</button>
       </div>
     </header>
 
-    <section class="content-grid">
-      <ResumeUploadPanel @uploaded="id => (uploadedResumeId = id)" />
-      <ResumeListPanel :highlight-id="uploadedResumeId" />
-    </section>
+    <main class="content">
+      <section class="hero">
+        <h1>Hello, {{ displayName }}.</h1>
+        <p>Keep your resumes current and see how each one measures up to the jobs you want.</p>
+      </section>
 
-    <section class="content-grid">
-      <JobPanel :selected-job-id="selectedJob?.id ?? null" @select="job => (selectedJob = job)" />
-      <MatchPanel :job="selectedJob" />
-    </section>
-  </main>
+      <!-- 宽屏三栏工作台：简历 | 职位 | 匹配结果；每栏独立往下排，不会因为相邻卡片高度不同留出大块空白。 -->
+      <div class="workspace">
+        <section class="column column-resumes" aria-label="Resumes">
+          <ResumeUploadPanel @uploaded="id => (uploadedResumeId = id)" />
+          <ResumeListPanel :highlight-id="uploadedResumeId" />
+        </section>
+
+        <section class="column column-jobs" aria-label="Jobs">
+          <JobPanel :selected-job-id="selectedJob?.id ?? null" @select="job => (selectedJob = job)" />
+        </section>
+
+        <section class="column column-match" aria-label="Match">
+          <MatchPanel :job="selectedJob" />
+        </section>
+      </div>
+    </main>
+  </div>
 </template>
 
 <style scoped>
 .dashboard-page {
   min-height: 100vh;
-  padding: 28px;
-  background: #f5f7fb;
 }
 
-.topbar {
-  max-width: 1280px;
+/* 半透明毛玻璃导航栏，滚动时停在顶部。 */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--nav-bg);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  box-shadow: 0 1px 0 var(--separator);
+}
+
+.nav-inner {
+  max-width: 1600px;
+  height: 52px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
+  gap: 16px;
   margin: 0 auto;
-  padding: 22px 24px;
-  background: #111827;
-  border-radius: 16px;
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.15);
+  padding: 0 32px;
 }
 
-.topbar h1 {
-  margin: 0;
-  color: #ffffff;
-  font-size: 27px;
+.wordmark {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
-.topbar p {
-  margin: 6px 0 0;
-  color: #9ca3af;
-  font-size: 14px;
-}
-
-.user-actions {
+.nav-user {
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 18px;
-}
-
-.user-summary {
-  display: grid;
-  gap: 4px;
-  text-align: right;
-}
-
-.user-summary strong {
-  color: #ffffff;
-}
-
-.user-summary span {
-  color: #9ca3af;
+  gap: 20px;
   font-size: 13px;
 }
 
-.logout-button {
-  height: 40px;
-  padding: 0 17px;
-  color: #ffffff;
-  background: transparent;
-  border: 1px solid #4b5563;
-  border-radius: 8px;
+.nav-name {
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.logout-button:hover:not(:disabled) {
-  background: #1f2937;
+.nav-role {
+  color: var(--text-secondary);
 }
 
-.content-grid {
-  max-width: 1280px;
+.nav-link {
+  flex: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: 13px;
+  background: none;
+  border: 0;
+}
+
+.nav-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.nav-link:disabled {
+  opacity: 0.4;
+}
+
+.content {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 0 32px 64px;
+}
+
+.hero {
+  padding: 36px 0 24px;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: 36px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+}
+
+.hero p {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 17px;
+  line-height: 1.4;
+}
+
+/* 默认（窄屏）单栏；中屏两栏，匹配结果接在职位下面；宽屏三栏，匹配结果最宽。 */
+.workspace {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "resumes" "jobs" "match";
   align-items: start;
   gap: 20px;
-  margin: 20px auto 0;
 }
 
-@media (max-width: 900px) {
-  .content-grid {
-    grid-template-columns: 1fr;
+.column {
+  min-width: 0;
+  display: grid;
+  gap: 20px;
+}
+
+.column-resumes {
+  grid-area: resumes;
+}
+
+.column-jobs {
+  grid-area: jobs;
+}
+
+.column-match {
+  grid-area: match;
+}
+
+@media (min-width: 900px) {
+  .workspace {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "resumes jobs"
+      "resumes match";
+  }
+}
+
+@media (min-width: 1280px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.35fr);
+    grid-template-areas: "resumes jobs match";
+  }
+}
+
+/*
+ * 宽且够高的屏幕：像 Mac 上的邮件 / 备忘录一样做成填满一屏的工作台。
+ * 三栏等高，每栏最后一张卡片拉伸到底部，内容超出时在卡片内滚动，页面本身不再滚动、也不会有参差不齐的空白。
+ * 屏幕太矮（例如 1366×768 的笔记本）时简历列表只剩两三行，太挤，所以回到普通的整页滚动。
+ */
+@media (min-width: 1280px) and (min-height: 820px) {
+  .dashboard-page {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .content {
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 24px;
+  }
+
+  .hero {
+    padding: 28px 0 20px;
+  }
+
+  .workspace {
+    flex: 1;
+    min-height: 0;
+    align-items: stretch;
+  }
+
+  .column {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .column > :deep(.panel) {
+    flex: none;
+  }
+
+  .column > :deep(.panel:last-child) {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: thin;
   }
 }
 
 @media (max-width: 640px) {
-  .dashboard-page {
-    padding: 16px;
+  .nav-inner, .content {
+    padding-left: 16px;
+    padding-right: 16px;
   }
 
-  .topbar {
-    align-items: flex-start;
-    flex-direction: column;
+  .nav-role {
+    display: none;
   }
 
-  .user-actions {
-    width: 100%;
-    justify-content: space-between;
+  .hero {
+    padding: 28px 0 20px;
   }
 
-  .user-summary {
-    text-align: left;
+  .hero h1 {
+    font-size: 30px;
+  }
+
+  .hero p {
+    font-size: 16px;
   }
 }
 </style>
