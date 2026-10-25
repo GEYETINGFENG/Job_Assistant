@@ -8,17 +8,31 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 为 JD 的每条要求在简历版本里检索证据。
  *
  * 向量检索总会返回 top-k，哪怕没有任何相关内容；不设阈值就等于让下游拿不相关的片段当证据。
- * 阈值按模型校准：local-hash-v1 的 0.15 来自评测集上的阈值扫描（docs/rag-evaluation.md 实验 4）。
+ * 阈值按模型校准：不同模型的相似度分布完全不同（哈希向量的相关片段多在 0.1–0.4，text-embedding-v4 在 0.4–0.7），
+ * 不能共用一个数。
  */
 @Service
 public class ResumeRetriever {
 
     static final int MAX_EXCERPT_LENGTH = 280;
+
+    /** 每个 embedding 模型在评测集上校准出的 top-k 和相似度阈值。 */
+    record Calibration(int topK, double similarityThreshold) {
+    }
+
+    /**
+     * 阈值按 Youden J 选出；k 取召回不再提升的最小值（docs/rag-evaluation.md 实验 2、4、5c、5d）。
+     * 没校准过的模型启动时直接失败，必须先跑评测或显式配置 RAG_TOP_K 和 RAG_SIMILARITY_THRESHOLD，避免沿用别的模型的参数。
+     */
+    static final Map<String, Calibration> CALIBRATIONS = Map.of(
+            HashingEmbeddingClient.MODEL, new Calibration(3, 0.15),
+            "text-embedding-v4", new Calibration(2, 0.35));
 
     private final ResumeChunkRepository chunkRepository;
     private final EmbeddingClient embeddingClient;
@@ -29,13 +43,26 @@ public class ResumeRetriever {
     public ResumeRetriever(ResumeChunkRepository chunkRepository,
                            EmbeddingClient embeddingClient,
                            RequirementExtractor requirementExtractor,
-                           @Value("${app.rag.top-k:3}") int topK,
-                           @Value("${app.rag.similarity-threshold:0.15}") double similarityThreshold) {
+                           @Value("${app.rag.top-k:#{null}}") Integer topKOverride,
+                           @Value("${app.rag.similarity-threshold:#{null}}") Double similarityThresholdOverride) {
         this.chunkRepository = chunkRepository;
         this.embeddingClient = embeddingClient;
         this.requirementExtractor = requirementExtractor;
-        this.topK = Math.max(1, topK);
-        this.similarityThreshold = similarityThreshold;
+        Calibration calibration = calibration(embeddingClient.model(), topKOverride, similarityThresholdOverride);
+        this.topK = calibration.topK();
+        this.similarityThreshold = calibration.similarityThreshold();
+    }
+
+    /** 显式配置优先；两个参数都配置了时，未校准的模型也可以使用。 */
+    static Calibration calibration(String model, Integer topKOverride, Double similarityThresholdOverride) {
+        Calibration calibrated = CALIBRATIONS.get(model);
+        if (calibrated == null && (topKOverride == null || similarityThresholdOverride == null)) {
+            throw new IllegalStateException("No calibrated top-k / similarity threshold for embedding model " + model
+                    + "; run RagEvaluationTest with this model or set RAG_TOP_K and RAG_SIMILARITY_THRESHOLD");
+        }
+        int topK = topKOverride != null ? topKOverride : calibrated.topK();
+        double threshold = similarityThresholdOverride != null ? similarityThresholdOverride : calibrated.similarityThreshold();
+        return new Calibration(Math.max(1, topK), threshold);
     }
 
     public List<RequirementEvidence> retrieve(Long resumeVersionId, String jobDescription) {

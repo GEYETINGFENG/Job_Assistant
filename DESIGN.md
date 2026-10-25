@@ -288,10 +288,27 @@ Comparing strategies at the same k is misleading. A resume cut into 800-characte
 
 Structured chunks also keep one experience entry together with its company and dates, so the evidence shown to the user reads as a single statement.
 
-### Top-k and threshold
+### Top-k and threshold: calibrated per embedding model
 
-- **k = 3**: Recall@k is 55.4% at k = 1, 89.3% at k = 3 and 96.4% at k = 5. Going from 3 to 5 gains 7 points of recall but drops precision from 31% to 20%, and every extra chunk is prompt tokens.
-- **Similarity threshold 0.15**: vector search always returns k results, even when nothing in the resume is relevant. Without a threshold the model is handed unrelated text and encouraged to cite it. The threshold sweep chose 0.15 by Youden J: it rejects all 6 queries that have no relevant section, and keeps correct evidence for 32% of the positive queries. Lexical similarity scores are low in absolute terms, which is why the threshold sits so low. **The threshold belongs to the embedding model.** It must be re-tuned when switching to DashScope, whose cosine values have a completely different distribution.
+Vector search always returns k results, even when nothing in the resume is relevant. Without a threshold the model is handed unrelated text and encouraged to cite it. Production therefore takes the top k chunks and then drops those below the similarity threshold.
+
+Similarity scores from the two embedding models live on completely different scales, so neither number can be shared:
+
+| Top-1 similarity | Relevant top-1 (min / mean / max) | Queries with no relevant section (min / mean / max) |
+|---|---|---|
+| `local-hash-v1` | 0.03 / 0.17 / 0.46 | 0.00 / 0.05 / 0.11 |
+| `text-embedding-v4` | 0.41 / 0.55 / 0.72 | 0.18 / 0.27 / 0.32 |
+
+`ResumeRetriever.CALIBRATIONS` holds one `(k, threshold)` pair per model:
+
+- **`local-hash-v1`: k = 3, threshold 0.15.**
+  - Recall@k goes from 55.4% at k = 1 to 67.9% at k = 2 and 89.3% at k = 3. Going to 5 gains 7 more points but drops precision from 31% to 20%.
+  - 0.15 has the best Youden J (0.32). It rejects all 6 queries with no relevant section but keeps correct evidence for only 32% of the positive queries, because the two ranges above overlap.
+- **`text-embedding-v4`: k = 2, threshold 0.35.**
+  - The ranges do not overlap: the highest negative scores 0.32 and the lowest relevant top-1 scores 0.41. Any threshold from 0.35 to 0.40 separates them perfectly (Youden J 0.96).
+  - 0.35 is the lower end of that plateau. It keeps more evidence, and the 6 negatives are a small sample, so the safety margin above them is only 0.03.
+  - After the threshold, recall is 94.6% at k = 1 and 98.2% at k = 2. k = 3 or 5 adds no recall, only lower-precision chunks: precision of the kept chunks falls from 62.5% to 56.0% and 53.3%. So k = 2 for this model.
+- **Fail fast for uncalibrated models.** Starting with an embedding model that has no calibration fails at startup, unless both `RAG_TOP_K` and `RAG_SIMILARITY_THRESHOLD` are set. Silently reusing another model's numbers would either show no evidence at all or accept everything. `RagEvaluationTest` also asserts that each calibrated threshold is still the best one on the evaluation set, so a dataset or embedding change that moves the optimum fails the build.
 
 ### Embeddings: pluggable, with a deterministic default
 
@@ -302,7 +319,16 @@ Structured chunks also keep one experience entry together with its company and d
 
 **Stemming was tested and turned off.** It lowered Recall@3 from 89.3% to 82.1%. Stemming collapses generic words such as "application", "model" and "deploy" into the same features, and those words appear in almost every chunk, so the distinctive terms lose weight. (Building the stemmer also caught a bug where "databases" and "database" stemmed to different forms.)
 
-Planned follow-up: once the DashScope key works, let `RagEvaluationTest` choose the embedding client, then run the same evaluation with DashScope. Compare it with the hash baseline and re-tune k and the threshold for that model. Today the evaluation only runs with `local-hash-v1`.
+**Hash vs DashScope** (structured chunks, same dataset, run with `RAG_EVAL_PROVIDER=dashscope`, 38 embedding requests):
+
+| Embedding | Recall@1 | Recall@3 | MRR |
+|---|---|---|---|
+| `local-hash-v1` | 55.4% | 89.3% | 0.72 |
+| `text-embedding-v4` | 94.6% | 100.0% | 0.98 |
+
+The semantic model fixes almost every lexical miss. "Break a monolithic application into microservices" now finds the experience entry about splitting a monolith, and "graduate degree in statistics" finds the M.S. entry. The only remaining top-1 miss is "accessibility compliance", where the summary outranks the labelled experience entry.
+
+The default stays `hash`, so tests and local development need no API key and cost nothing. Production should use `RAG_EMBEDDING_PROVIDER=dashscope`. Normal test runs never call the API; the comparison only runs when `RAG_EVAL_PROVIDER=dashscope` is set.
 
 ### Storage: pgvector, exact search, no ANN index
 

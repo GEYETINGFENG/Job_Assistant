@@ -96,11 +96,11 @@ app:
       # 切换后旧向量不会被误用（按 embedding_model 区分），新模型按需重新 embedding。
       provider: ${RAG_EMBEDDING_PROVIDER:hash}
       model: ${RAG_EMBEDDING_MODEL:text-embedding-v4}
-    # 每条 JD 要求取回的简历片段数。
-    top-k: 3
-    # 低于阈值的片段不作为证据。0.15 是 local-hash-v1 在评测集上的最佳阈值（docs/rag-evaluation.md）；
-    # 换成 dashscope 后相似度分布不同，必须用评测重新校准。
-    similarity-threshold: ${RAG_SIMILARITY_THRESHOLD:0.15}
+    # 每条 JD 要求最多取回的简历片段数，以及低于多少相似度的片段不作为证据。
+    # 默认按 embedding 模型取评测校准值（local-hash-v1：k=3、0.15；text-embedding-v4：k=2、0.35，
+    # 见 ResumeRetriever.CALIBRATIONS 和 docs/rag-evaluation.md）；设置后覆盖所有模型。
+    top-k: ${RAG_TOP_K:}
+    similarity-threshold: ${RAG_SIMILARITY_THRESHOLD:}
   match:
     # 每个用户每天最多发起的匹配次数（只统计真正新建或重新发起的分析）。
     daily-quota-per-user: ${MATCH_DAILY_QUOTA:20}

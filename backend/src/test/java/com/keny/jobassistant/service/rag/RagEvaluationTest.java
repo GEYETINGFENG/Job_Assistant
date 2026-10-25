@@ -1,22 +1,34 @@
 package com.keny.jobassistant.service.rag;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.keny.jobassistant.service.LlmRateLimiter;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.web.client.RestClient;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.mockito.Mockito.mock;
 
 /**
  * 检索质量回归测试 + 评测报告。
  * 平时只断言质量下限（结构化切块不能比固定长度差、Recall@3 不低于基线），防止改动悄悄让检索变差；
- * RAG_EVAL_REPORT=true 时把完整结果写入 docs/rag-evaluation.md。
+ * RAG_EVAL_REPORT=true 时把完整结果写入 docs/rag-evaluation.md；
+ * 同时设置 RAG_EVAL_PROVIDER=dashscope（需要 DASHSCOPE_API_KEY）时，报告额外包含真实语义 embedding 与哈希基线的对比。
  */
 class RagEvaluationTest {
 
@@ -25,11 +37,37 @@ class RagEvaluationTest {
     private static final EmbeddingClient HASH = new HashingEmbeddingClient();
     private static final EmbeddingClient HASH_STEMMING = new HashingEmbeddingClient(HashingEmbeddingClient.DIMENSIONS, true);
 
+    private static final String DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+
     private static RagEvaluator evaluator;
+    /** 只有 RAG_EVAL_PROVIDER=dashscope 时才有值：平时的单元测试不联网、不花额度。 */
+    private static CachingEmbeddingClient semantic;
 
     @BeforeAll
     static void load() throws IOException {
         evaluator = RagEvaluator.loadDefaultDataset();
+        semantic = semanticFromEnvironment();
+    }
+
+    static CachingEmbeddingClient semanticFromEnvironment() {
+        if (!"dashscope".equalsIgnoreCase(System.getenv("RAG_EVAL_PROVIDER"))) {
+            return null;
+        }
+        String apiKey = System.getenv("DASHSCOPE_API_KEY");
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new IllegalStateException("RAG_EVAL_PROVIDER=dashscope requires DASHSCOPE_API_KEY");
+        }
+        String baseUrl = Optional.ofNullable(System.getenv("BAILIAN_BASE_URL")).filter(url -> !url.isBlank()).orElse(DEFAULT_BASE_URL);
+        String model = Optional.ofNullable(System.getenv("RAG_EMBEDDING_MODEL")).filter(name -> !name.isBlank()).orElse("text-embedding-v4");
+        RestClient restClient = RestClient.builder()
+                .baseUrl(baseUrl)
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiKey)
+                .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .build();
+        // 评测是一次性的离线任务，几十次请求，不经过 Redis 限流。
+        LlmRateLimiter rateLimiter = mock(LlmRateLimiter.class);
+        return new CachingEmbeddingClient(new DashScopeEmbeddingClient(restClient, new ObjectMapper(), rateLimiter,
+                new SimpleMeterRegistry(), model, HashingEmbeddingClient.DIMENSIONS));
     }
 
     @Test
@@ -62,6 +100,32 @@ class RagEvaluationTest {
 
         assertThat(metrics.recall()).isGreaterThanOrEqualTo(RECALL_AT_3_FLOOR);
         assertThat(metrics.mrr()).isGreaterThanOrEqualTo(MRR_FLOOR);
+    }
+
+    /** 代码里的校准阈值必须是评测集上 Youden J 最高的阈值之一：数据集或 embedding 改了，阈值要跟着重新校准。 */
+    @Test
+    void calibratedThresholdShouldBeBestOnEvaluationSet() {
+        assertCalibratedThresholdIsBest(HASH, 0.5);
+    }
+
+    /** 只在 RAG_EVAL_PROVIDER=dashscope 时运行：语义 embedding 不能比词法基线差，阈值也要是最优的。 */
+    @Test
+    void semanticEmbeddingShouldBeatLexicalBaseline() {
+        assumeTrue(semantic != null, "set RAG_EVAL_PROVIDER=dashscope to evaluate the semantic embedding");
+
+        var lexical = evaluator.evaluate(RagEvaluator.structured(), HASH, 3);
+        var dense = evaluator.evaluate(RagEvaluator.structured(), semantic, 3);
+        assertThat(dense.recall()).isGreaterThanOrEqualTo(lexical.recall());
+        assertThat(dense.mrr()).isGreaterThanOrEqualTo(lexical.mrr());
+        assertCalibratedThresholdIsBest(semantic, 0.9);
+    }
+
+    private static void assertCalibratedThresholdIsBest(EmbeddingClient model, double maxThreshold) {
+        var sweep = evaluator.sweepThresholds(RagEvaluator.structured(), model, 0.0, maxThreshold, 0.05);
+        double bestYouden = sweep.stream().mapToDouble(RagEvaluator.ThresholdResult::youden).max().orElseThrow();
+        double calibrated = ResumeRetriever.CALIBRATIONS.get(model.model()).similarityThreshold();
+        var atCalibrated = sweep.stream().filter(result -> Math.abs(result.threshold() - calibrated) < 1e-9).findFirst().orElseThrow();
+        assertThat(atCalibrated.youden()).as("Youden J at %s for %s", calibrated, model.model()).isCloseTo(bestYouden, within(1e-9));
     }
 
     /** 实测基线（local-hash-v1、结构化切块）：Recall@3 = 89.3%，MRR = 0.72；下限留少量余量。 */
@@ -111,7 +175,7 @@ class RagEvaluationTest {
 
         md.append("\n## Experiment 2: top-k (structured chunking)\n\n")
                 .append("| k | Recall@k | Precision@k |\n|---|---|---|\n");
-        for (int k : new int[]{1, 3, 5}) {
+        for (int k : new int[]{1, 2, 3, 5}) {
             var m = evaluator.evaluate(RagEvaluator.structured(), HASH, k);
             md.append(row(Integer.toString(k), pct(m.recall()), pct(m.precision())));
         }
@@ -132,17 +196,10 @@ class RagEvaluationTest {
             if (off != on) md.append(row(query.resume(), query.query(), pct(off), pct(on)));
         });
 
-        var sweep = evaluator.sweepThresholds(RagEvaluator.structured(), HASH, 0.0, 0.5, 0.05);
-        var best = sweep.stream().max(Comparator.comparingDouble(RagEvaluator.ThresholdResult::youden)).orElseThrow();
         md.append("\n## Experiment 4: similarity threshold (structured, top-1)\n\n")
                 .append("A requirement is shown as covered only when the best chunk's similarity reaches the threshold. ")
-                .append("Positive = the top chunk is relevant and above the threshold; negative = a query with no relevant section is correctly rejected.\n\n")
-                .append("| Threshold | Positives with correct evidence | Negatives rejected | Youden J |\n|---|---|---|---|\n");
-        for (var result : sweep) {
-            String label = result.threshold() == best.threshold() ? "**" + fmt(result.threshold()) + "**" : fmt(result.threshold());
-            md.append(row(label, pct(result.positiveRate()), pct(result.negativeRate()), fmt(result.youden())));
-        }
-        md.append("\nBest threshold by Youden J: **").append(fmt(best.threshold())).append("**.\n");
+                .append("Positive = the top chunk is relevant and above the threshold; negative = a query with no relevant section is correctly rejected.\n\n");
+        thresholdTable(md, evaluator.sweepThresholds(RagEvaluator.structured(), HASH, 0.0, 0.5, 0.05));
 
         md.append("\n## Per-query results (structured, top-3)\n\n")
                 .append("| Resume | Query | Labelled | Top-3 retrieved | Top-1 similarity | Top-1 relevant |\n|---|---|---|---|---|---|\n");
@@ -152,7 +209,98 @@ class RagEvaluationTest {
                     String.join(", ", outcome.topKeys()), fmt(outcome.topSimilarity()),
                     outcome.query().positive() ? (outcome.hit() ? "yes" : "**no**") : "n/a"));
         }
+
+        if (semantic != null) {
+            semanticComparison(md);
+        } else {
+            md.append("\n_Run with `RAG_EVAL_PROVIDER=dashscope` to add the comparison with a semantic embedding model._\n");
+        }
         return md.toString();
+    }
+
+    /** 实验 5：同一数据集、同一检索方式，只换 embedding 模型。 */
+    private static void semanticComparison(StringBuilder md) {
+        var models = List.<EmbeddingClient>of(HASH, semantic);
+        md.append("\n## Experiment 5: embedding model (structured chunking)\n\n")
+                .append("Same dataset and the same exact cosine search; only the embedding model changes. `")
+                .append(semantic.model()).append("` is called through the DashScope OpenAI-compatible API.\n\n")
+                .append("### 5a. Retrieval quality\n\n")
+                .append("| Embedding | Recall@1 | Recall@3 | Recall@5 | Precision@3 | MRR | Recall @ ").append(CONTEXT_BUDGET).append(" chars |\n")
+                .append("|---|---|---|---|---|---|---|\n");
+        for (EmbeddingClient model : models) {
+            var at3 = evaluator.evaluate(RagEvaluator.structured(), model, 3);
+            md.append(row("`" + model.model() + "`",
+                    pct(evaluator.evaluate(RagEvaluator.structured(), model, 1).recall()),
+                    pct(at3.recall()),
+                    pct(evaluator.evaluate(RagEvaluator.structured(), model, 5).recall()),
+                    pct(at3.precision()), fmt(at3.mrr()),
+                    pct(evaluator.evaluateWithBudget(RagEvaluator.structured(), model, CONTEXT_BUDGET).recall())));
+        }
+
+        md.append("\n### 5b. Similarity distribution of the top-1 chunk\n\n")
+                .append("The threshold has to separate \"top chunk is relevant\" from \"the resume has nothing relevant\". ")
+                .append("Where these ranges overlap, no threshold can be perfect.\n\n")
+                .append("| Embedding | Positives, top-1 relevant (min / mean / max) | Negatives (min / mean / max) |\n|---|---|---|\n");
+        for (EmbeddingClient model : models) {
+            var outcomes = evaluator.outcomes(RagEvaluator.structured(), model);
+            md.append(row("`" + model.model() + "`",
+                    range(outcomes.stream().filter(o -> o.query().positive() && o.hit()).mapToDouble(RagEvaluator.QueryOutcome::topSimilarity).toArray()),
+                    range(outcomes.stream().filter(o -> !o.query().positive()).mapToDouble(RagEvaluator.QueryOutcome::topSimilarity).toArray())));
+        }
+
+        md.append("\n### 5c. Similarity threshold for `").append(semantic.model()).append("` (structured, top-1)\n\n")
+                .append("Semantic similarities sit much higher than lexical ones, so the hashing threshold cannot be reused.\n\n");
+        thresholdTable(md, evaluator.sweepThresholds(RagEvaluator.structured(), semantic, 0.0, 0.9, 0.05));
+
+        md.append("\n### 5d. Top-k after the threshold (`").append(semantic.model()).append("`, threshold ")
+                .append(fmt(ResumeRetriever.CALIBRATIONS.get(semantic.model()).similarityThreshold())).append(")\n\n")
+                .append("Production takes the top k chunks and then drops those below the threshold, so k is only an upper bound ")
+                .append("on how much evidence reaches the prompt.\n\n")
+                .append("| k | Recall | Precision of kept chunks | Chunks kept / requirement |\n|---|---|---|---|\n");
+        double threshold = ResumeRetriever.CALIBRATIONS.get(semantic.model()).similarityThreshold();
+        for (int k : new int[]{1, 2, 3, 5}) {
+            var m = evaluator.evaluateWithThreshold(RagEvaluator.structured(), semantic, k, threshold);
+            md.append(row(Integer.toString(k), pct(m.recall()), pct(m.precision()), fmt1(m.evidencePerQuery())));
+        }
+
+        var lexical = evaluator.outcomes(RagEvaluator.structured(), HASH);
+        var dense = evaluator.outcomes(RagEvaluator.structured(), semantic);
+        md.append("\n### 5e. Queries where the top-1 result changes\n\n")
+                .append("| Resume | Query | Labelled | `").append(HASH.model()).append("` top-1 | `").append(semantic.model()).append("` top-1 |\n")
+                .append("|---|---|---|---|---|\n");
+        for (int i = 0; i < lexical.size(); i++) {
+            var before = lexical.get(i);
+            var after = dense.get(i);
+            if (before.topKeys().get(0).equals(after.topKeys().get(0))) continue;
+            var query = before.query();
+            md.append(row(query.resume(), query.query(),
+                    query.relevant().isEmpty() ? "(none)" : String.join(", ", query.relevant()),
+                    topOne(before), topOne(after)));
+        }
+        md.append("\n_").append(semantic.calls()).append(" embedding requests in this run (vectors cached per text)._\n");
+    }
+
+    private static void thresholdTable(StringBuilder md, List<RagEvaluator.ThresholdResult> sweep) {
+        var best = sweep.stream().max(Comparator.comparingDouble(RagEvaluator.ThresholdResult::youden)).orElseThrow();
+        md.append("| Threshold | Positives with correct evidence | Negatives rejected | Youden J |\n|---|---|---|---|\n");
+        for (var result : sweep) {
+            String label = result.threshold() == best.threshold() ? "**" + fmt(result.threshold()) + "**" : fmt(result.threshold());
+            md.append(row(label, pct(result.positiveRate()), pct(result.negativeRate()), fmt(result.youden())));
+        }
+        md.append("\nBest threshold by Youden J: **").append(fmt(best.threshold())).append("**.\n");
+    }
+
+    private static String topOne(RagEvaluator.QueryOutcome outcome) {
+        String verdict = !outcome.query().positive() ? "" : outcome.hit() ? " ✓" : " ✗";
+        return outcome.topKeys().get(0) + " (" + fmt(outcome.topSimilarity()) + ")" + verdict;
+    }
+
+    private static String range(double[] values) {
+        if (values.length == 0) return "–";
+        double min = Arrays.stream(values).min().orElse(0);
+        double max = Arrays.stream(values).max().orElse(0);
+        double mean = Arrays.stream(values).average().orElse(0);
+        return fmt(min) + " / " + fmt(mean) + " / " + fmt(max);
     }
 
     private static String row(String... cells) {
