@@ -2,7 +2,9 @@ package com.keny.jobassistant.service;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.keny.jobassistant.common.ErrorCode;
 import com.keny.jobassistant.exception.BusinessException;
+import com.keny.jobassistant.exception.ResumeParseInProgressException;
 import com.keny.jobassistant.model.document.ResumeParseResult;
 import com.keny.jobassistant.service.impl.BailianResumeParserServiceImpl;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -89,7 +91,8 @@ class ResumeParseCacheIntegrationTest {
         assertThat(cache.stats().hit()).isEqualTo(1);
         assertThat(cache.stats().miss()).isEqualTo(1);
         assertThat(cache.stats().hitRate()).isEqualTo(0.5);
-        assertThat(redis.getExpire(cache.keyFor(file))).isBetween(86300L, 86400L);
+        // 24h ± 10% 抖动。
+        assertThat(redis.getExpire(cache.keyFor(file))).isBetween(77700L, 95040L);
         assertThat(redis.getExpire("jobassistant:resume:parse:stats:test-model:v1")).isEqualTo(-1);
     }
 
@@ -171,6 +174,109 @@ class ResumeParseCacheIntegrationTest {
         assertThat(cache.stats().hit()).isZero();
     }
 
+    /** 防雪崩：同一时刻写入的一批缓存，过期时间被打散在 ±10% 范围内，而不是同一秒集体失效。 */
+    @Test
+    void ttlJitterShouldSpreadExpiryOfABatch() throws Exception {
+        var result = parser(cache, "test-model");
+        expectLlm(1);
+        ResumeParseResult parsed = result.parseResume(file);
+        var expiries = new java.util.HashSet<Long>();
+        for (int i = 0; i < 50; i++) {
+            String key = "jobassistant:resume:parse:batch" + i + ":test-model:v1";
+            cache.put(key, new ResumeParseResult(parsed.parsedJson(), parsed.mediaType(), parsed.extension()));
+            long expire = redis.getExpire(key);
+            assertThat(expire).isBetween(77700L, 95040L);
+            expiries.add(expire / 600);
+        }
+        // 按 10 分钟分桶，50 个 key 至少落在 10 个不同的桶里。
+        assertThat(expiries).hasSizeGreaterThanOrEqualTo(10);
+    }
+
+    /** 防穿透：同一份内容连续 3 次解析失败后，10 分钟内直接拒绝，不再调用模型。 */
+    @Test
+    void repeatedInvalidOutputShouldStopCallingTheModel() throws Exception {
+        expectInvalidLlm(3);
+        var parser = parser(cache, "test-model");
+        for (int i = 0; i < 3; i++) {
+            assertThatThrownBy(() -> parser.parseResume(file))
+                    .isInstanceOfSatisfying(BusinessException.class,
+                            exception -> assertThat(exception.getCode()).isEqualTo(ErrorCode.SYSTEM_ERROR.getCode()));
+        }
+
+        // 第 4 次：不再请求模型（MockRestServiceServer 只准备了 3 个响应），且不可重试。
+        assertThatThrownBy(() -> parser.parseResume(file))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo(ErrorCode.RESUME_UNPARSEABLE.getCode()));
+        verify(limiter, times(3)).acquire();
+        assertThat(redis.getExpire(cache.keyFor(file) + ":failures")).isBetween(1L, 600L);
+    }
+
+    @Test
+    void successfulParseShouldClearEarlierFailures() throws Exception {
+        expectInvalidLlm(1);
+        expectLlm(1);
+        var parser = parser(cache, "test-model");
+        assertThatThrownBy(() -> parser.parseResume(file)).isInstanceOf(BusinessException.class);
+        assertThat(redis.hasKey(cache.keyFor(file) + ":failures")).isTrue();
+
+        parser.parseResume(file);
+
+        assertThat(redis.hasKey(cache.keyFor(file) + ":failures")).isFalse();
+    }
+
+    /** 防击穿：另一个任务正在解析同一份内容时，延后重试而不是再调一次模型；锁释放后正常解析。 */
+    @Test
+    void parseInProgressShouldDeferWithoutCallingTheModel() throws Exception {
+        var parser = parser(cache, "test-model");
+        String key = cache.keyFor(file);
+        try (var heldByOtherWorker = cache.tryLock(key)) {
+            assertThat(heldByOtherWorker.acquired()).isTrue();
+            assertThatThrownBy(() -> parser.parseResume(file)).isInstanceOf(ResumeParseInProgressException.class);
+            verifyNoInteractions(limiter);
+        }
+
+        expectLlm(1);
+        parser.parseResume(file);
+        assertThat(redis.hasKey(key + ":lock")).isFalse();
+    }
+
+    /** 拿到锁后二次检查：find 时还是 miss，但拿到锁时持有锁的任务刚好写完缓存，直接复用，不再调用模型。 */
+    @Test
+    void resultCachedWhileWaitingForTheLockShouldBeReused() throws Exception {
+        expectLlm(1);
+        ResumeParseResult first = parser(cache, "test-model").parseResume(file);
+        // find 永远报告 miss，模拟"查缓存时对方还没写完"。
+        var missOnFind = new ResumeParseCacheService(redis, mapper, "test-model", "v1", Duration.ofHours(24)) {
+            @Override
+            public java.util.Optional<ResumeParseResult> find(String key) {
+                return java.util.Optional.empty();
+            }
+        };
+
+        ResumeParseResult second = parser(missOnFind, "test-model").parseResume(file);
+
+        // MockRestServiceServer 只准备了 1 个响应：第二次没有调用模型，也没有申请限流令牌。
+        assertThat(second.parsedJson()).isEqualTo(first.parsedJson());
+        assertThat(second.promptTokens()).isNull();
+        verify(limiter, times(1)).acquire();
+    }
+
+    /** 锁过期后被别人重新获取时，旧持有者释放锁不能删掉别人的锁。 */
+    @Test
+    void lockShouldOnlyBeReleasedByItsOwner() {
+        String key = "jobassistant:resume:parse:owner:test-model:v1";
+        var first = cache.tryLock(key);
+        redis.delete(key + ":lock");
+        var second = cache.tryLock(key);
+        assertThat(second.acquired()).isTrue();
+
+        first.close();
+
+        assertThat(redis.hasKey(key + ":lock")).isTrue();
+        second.close();
+        assertThat(redis.hasKey(key + ":lock")).isFalse();
+    }
+
     @Test
     void emptyStatsShouldBeZero() {
         assertThat(cache.stats().total()).isZero();
@@ -190,6 +296,14 @@ class ResumeParseCacheIntegrationTest {
         for (int i = 0; i < count; i++) {
             server.expect(requestTo("https://llm.test/chat/completions"))
                     .andRespond(withSuccess(response(ResumeParseFixtures.modelOutput("Alice", "Java")), MediaType.APPLICATION_JSON));
+        }
+    }
+
+    /** 模型有响应，但缺字段，过不了 ResumeParseValidator。 */
+    private void expectInvalidLlm(int count) throws Exception {
+        for (int i = 0; i < count; i++) {
+            server.expect(requestTo("https://llm.test/chat/completions"))
+                    .andRespond(withSuccess(response("{\"name\":\"Alice\"}"), MediaType.APPLICATION_JSON));
         }
     }
 

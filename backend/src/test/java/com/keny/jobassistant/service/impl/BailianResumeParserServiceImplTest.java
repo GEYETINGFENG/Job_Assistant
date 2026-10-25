@@ -53,6 +53,7 @@ class BailianResumeParserServiceImplTest {
         cacheService = mock(ResumeParseCacheService.class);
         when(cacheService.keyFor(any())).thenReturn(CACHE_KEY);
         when(cacheService.find(CACHE_KEY)).thenReturn(Optional.empty());
+        when(cacheService.tryLock(CACHE_KEY)).thenReturn(new ResumeParseCacheService.ParseLock(true, () -> { }));
         meterRegistry = new SimpleMeterRegistry();
         parser = new BailianResumeParserServiceImpl(builder.build(), objectMapper, extractor, cacheService,
                 mock(LlmRateLimiter.class), meterRegistry, "qwen-test", false, 30000, 4000);

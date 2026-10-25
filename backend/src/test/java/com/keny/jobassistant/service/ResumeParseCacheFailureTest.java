@@ -42,6 +42,8 @@ class ResumeParseCacheFailureTest {
     void setUp() {
         when(redis.opsForValue()).thenReturn(values);
         when(redis.opsForHash()).thenReturn(hashes);
+        // 防击穿的解析锁：默认拿得到。
+        when(values.setIfAbsent(anyString(), anyString(), any(Duration.class))).thenReturn(true);
         when(extractor.extract(file)).thenReturn(new ResumeDocumentContent("application/pdf", ".pdf", "Alice"));
         ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         cache = new ResumeParseCacheService(redis, mapper, "test-model", "v1", Duration.ofHours(24));
@@ -83,6 +85,16 @@ class ResumeParseCacheFailureTest {
         when(hashes.increment(anyString(), eq("miss"), eq(1L))).thenThrow(new RedisConnectionFailureException("test failure"));
         assertThat(parser.parseResume(file).parsedJson().path("name").asText()).isEqualTo("Alice");
         verify(values).set(anyString(), anyString(), any(Duration.class));
+        server.verify();
+    }
+
+    /** 解析锁拿不到答复时不加锁继续：最坏多调一次模型，好过让上传失败。 */
+    @Test
+    void failedLockShouldNotFailParsing() {
+        expectModel();
+        when(values.setIfAbsent(anyString(), anyString(), any(Duration.class)))
+                .thenThrow(new RedisConnectionFailureException("test failure"));
+        assertThat(parser.parseResume(file).parsedJson().path("name").asText()).isEqualTo("Alice");
         server.verify();
     }
 

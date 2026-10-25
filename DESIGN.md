@@ -392,3 +392,37 @@ Previously every HTTP error from the AI service became `SYSTEM_ERROR` and was re
 | 429, 5xx, timeout | `SYSTEM_ERROR` | retried with backoff |
 | other 4xx (401/403 bad key, 400 bad request) | `AI_SERVICE_REJECTED` | **DEAD on the first attempt** |
 | output fails validation | `SYSTEM_ERROR` | retried with backoff |
+
+## 9. Caching and Rate Limiting (Lesson 10)
+
+The most expensive operation in the system is the resume-parsing LLM call: it takes seconds, costs money, and runs at temperature 0.1, so the same file always gives the same result. A Redis cache removes the repeated calls (`ResumeParseCacheService`), and a Redis token bucket stops a burst of uploads from running up the bill (`LlmRateLimiter`, details in [`docs/llm-rate-limit.md`](docs/llm-rate-limit.md)). The hit rate is counted in Redis and exposed at `GET /admin/resume-cache/stats`, because a cache whose hit rate nobody measures cannot be tuned.
+
+### Cache key
+
+`jobassistant:resume:parse:{sha256(file bytes)}:{model}:{prompt version}`
+
+| Alternative | Why not |
+|---|---|
+| File name | Two different `resume.pdf` files collide, and one user would receive another user's parsed resume. |
+| User id + file name | Editing the file without renaming it returns the old result. |
+| **Content hash** | Same bytes mean the same input and the same key, no matter who uploads it or what it is called. |
+
+The model and prompt version are part of the key, so changing either one invalidates every old entry without a migration. This is the Lesson 8 rule of not betting on things staying the same. For example, the validation added in section 8 bumped the prompt version to `v2`.
+
+### Why the rate limiter lives in Redis
+
+With the counter in application memory, three instances behind a load balancer each allow the full rate, and a user gets three times the limit. Guava and Resilience4j limiters are per process. The token bucket is a Lua script on a single Redis hash, so every instance spends from the same bucket, and refill and spend happen atomically. It is the same reasoning as the multi-instance locks in Lesson 9: state that must be shared between instances cannot live inside one of them.
+
+### Three pitfalls
+
+| Pitfall | What it means here | Defence |
+|---|---|---|
+| **Avalanche**: many keys expire at once | Every entry had exactly 24 h, so a batch of uploads expired in the same second. | **TTL jitter**: each write uses 24 h ± 10% (`cache-ttl-jitter`). A batch of 50 writes is spread over at least ten 10-minute buckets (tested). |
+| **Penetration**: lookups for data that does not exist reach the backend every time | The "database" behind this cache is the LLM. A scanned image or a PDF that is not a resume never yields a valid result, so every upload of it burns three model calls. | **Short-TTL negative cache**: only "the model answered but the output failed validation" counts as a failure; network errors and rate limits do not. Three such failures for the same key within 10 minutes mark it unparseable. Further uploads fail at once with `RESUME_UNPARSEABLE`, which is not retryable, so the task goes DEAD without calling the model. The marker expires after 10 minutes, and a successful parse clears it. |
+| **Breakdown**: one hot key expires and many requests miss together | Two uploads of the same file in the same few seconds both miss and both call the model. | **Mutex per key**: `SET key:lock token NX PX 2m` before calling the model. A task that does not get the lock throws `ResumeParseInProgressException`. The worker defers it by 5 s without using a retry attempt (`lastErrorCode = PARSE_IN_PROGRESS`), and the retry hits the cache. The lock holder re-checks the cache after locking, in case the previous holder finished in between. The lock is released by a Lua compare-and-delete, so a holder whose lock expired cannot delete a lock someone else now owns. |
+
+All three protections fail open where that is safe. If Redis cannot answer the lock or failure-counter request, parsing proceeds: the worst case is one extra model call, which is better than failing the upload. Reading the cached result itself still fails closed: if Redis cannot say whether a result is cached, the task is retried later instead of calling the model, because "unknown" must not turn into a paid call during a Redis outage.
+
+### Cache-Aside and invalidation
+
+The usual Cache-Aside rule is: on write, update the database and then **delete** the cache entry rather than update it. Deleting is idempotent, while two concurrent updates can land in the wrong order and leave the old value. This cache does not need that step: its keys are **content-addressed**. A new resume version has different bytes, therefore a different key, and the old entry is simply never read again. The TTL exists for memory management, so unused entries are evicted, and not for consistency. The same holds for the derived RAG chunks (section 7): they belong to an immutable resume version and are deleted with it.

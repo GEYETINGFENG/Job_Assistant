@@ -6,6 +6,7 @@ import com.keny.jobassistant.common.ErrorCode;
 import com.keny.jobassistant.controller.ResumeUploadController;
 import com.keny.jobassistant.exception.BusinessException;
 import com.keny.jobassistant.exception.LlmRateLimitedException;
+import com.keny.jobassistant.exception.ResumeParseInProgressException;
 import com.keny.jobassistant.model.document.ResumeParseResult;
 import com.keny.jobassistant.model.dto.PresignResumeUploadResponse;
 import com.keny.jobassistant.model.dto.ResumeUploadCompleteResponse;
@@ -378,6 +379,25 @@ class ResumeUploadTaskStateMachineTest {
             assertThat(session.getNextAttemptAt()).isAfter(Instant.now());
             verify(s3StorageService, never()).deleteObjectQuietly(claim.processingObjectKey());
         }
+    }
+
+    /** 同一份内容正在被别的任务解析：和限流一样只延后、不占失败次数，并给出能看懂的原因。 */
+    @Test
+    void parseInProgressShouldDeferWithoutUsingAnAttempt() throws Exception {
+        enableTransactions();
+        ResumeUploadTaskClaim claim = taskClaim(ResumeUploadType.CREATE, null, 2);
+        ResumeUploadSession session = processingSession(claim);
+        when(taskClaimRepository.claimNext(any(UUID.class))).thenReturn(Optional.of(claim));
+        stubDownload(claim);
+        when(resumeParserService.parseResume(any(MultipartFile.class))).thenThrow(new ResumeParseInProgressException(5000));
+        when(uploadSessionRepository.findForUpdateById(claim.uploadId())).thenReturn(Optional.of(session));
+
+        newWorker().processPendingUploads();
+
+        assertThat(session.getStatus()).isEqualTo(ResumeUploadStatus.PENDING);
+        assertThat(session.getAttemptCount()).isEqualTo(1);
+        assertThat(session.getLastErrorCode()).isEqualTo("PARSE_IN_PROGRESS");
+        assertThat(session.getNextAttemptAt()).isAfter(Instant.now().plusMillis(4000));
     }
 
     /** AI 服务拒绝请求（Key 无效等）重试也不会成功：第一次就进入 DEAD，不浪费剩下的重试次数。 */
