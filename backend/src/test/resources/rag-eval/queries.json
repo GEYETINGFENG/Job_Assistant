@@ -1,0 +1,40 @@
+[
+  {"resume": "backend", "query": "Build and maintain high-throughput event streaming with Kafka", "relevant": ["experience:0", "skills"]},
+  {"resume": "backend", "query": "Design idempotent payment APIs that are safe to retry", "relevant": ["experience:0"]},
+  {"resume": "backend", "query": "Optimize slow SQL queries and database indexes", "relevant": ["experience:1"]},
+  {"resume": "backend", "query": "Add caching layers to reduce load on the primary database", "relevant": ["experience:1"]},
+  {"resume": "backend", "query": "Implement API rate limiting across multiple instances", "relevant": ["project:0"]},
+  {"resume": "backend", "query": "Break a monolithic application into microservices", "relevant": ["experience:1"]},
+  {"resume": "backend", "query": "Hold an AWS certification", "relevant": ["certificates"]},
+  {"resume": "backend", "query": "Bachelor's degree in computer science", "relevant": ["education:0"]},
+
+  {"resume": "ml", "query": "Train recommendation or ranking models for personalization", "relevant": ["experience:0"]},
+  {"resume": "ml", "query": "Run online experiments to measure model impact", "relevant": ["experience:0"]},
+  {"resume": "ml", "query": "Build retrieval-augmented generation with vector search", "relevant": ["project:0"]},
+  {"resume": "ml", "query": "Deploy deep learning models to production", "relevant": ["project:1"]},
+  {"resume": "ml", "query": "Predict customer churn using gradient boosted trees", "relevant": ["experience:1"]},
+  {"resume": "ml", "query": "Proficiency with PyTorch and TensorFlow", "relevant": ["skills"]},
+  {"resume": "ml", "query": "Graduate degree in statistics or a related field", "relevant": ["education:0"]},
+
+  {"resume": "frontend", "query": "Build reusable UI component libraries", "relevant": ["experience:0"]},
+  {"resume": "frontend", "query": "Ensure accessibility compliance for web applications", "relevant": ["experience:0"]},
+  {"resume": "frontend", "query": "Improve page load performance and bundle size", "relevant": ["experience:0"]},
+  {"resume": "frontend", "query": "Real-time collaborative editing over WebSockets", "relevant": ["project:0"]},
+  {"resume": "frontend", "query": "Offline-capable progressive web apps", "relevant": ["project:1"]},
+  {"resume": "frontend", "query": "Search engine optimization for marketing websites", "relevant": ["experience:1"]},
+  {"resume": "frontend", "query": "Strong TypeScript and React skills", "relevant": ["skills"]},
+
+  {"resume": "sre", "query": "Participate in on-call rotation and incident response", "relevant": ["experience:0"]},
+  {"resume": "sre", "query": "Define service level objectives and alerting", "relevant": ["experience:0"]},
+  {"resume": "sre", "query": "Manage infrastructure as code with Terraform", "relevant": ["project:0"]},
+  {"resume": "sre", "query": "Build batch ETL pipelines with Airflow and dbt", "relevant": ["experience:1"]},
+  {"resume": "sre", "query": "Kubernetes administrator certification", "relevant": ["certificates"]},
+  {"resume": "sre", "query": "Stream logs through Kafka into an analytics database", "relevant": ["project:1"]},
+
+  {"resume": "backend", "query": "Experience with mobile development in Swift and iOS", "relevant": []},
+  {"resume": "backend", "query": "Background in computer vision and image processing", "relevant": []},
+  {"resume": "ml", "query": "Manage Kubernetes clusters and production on-call duties", "relevant": []},
+  {"resume": "frontend", "query": "Design relational database schemas and write stored procedures", "relevant": []},
+  {"resume": "frontend", "query": "Train machine learning models in PyTorch", "relevant": []},
+  {"resume": "sre", "query": "Build user interfaces with React and CSS animations", "relevant": []}
+]

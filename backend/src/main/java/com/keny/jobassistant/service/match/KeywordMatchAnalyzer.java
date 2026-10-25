@@ -3,6 +3,7 @@ package com.keny.jobassistant.service.match;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.keny.jobassistant.model.ai.MatchAnalysis;
 import com.keny.jobassistant.model.ai.MatchAnalysisResult;
+import com.keny.jobassistant.model.ai.RequirementEvidence;
 import com.keny.jobassistant.model.enums.MatchEngine;
 import com.keny.jobassistant.service.MatchAnalyzer;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
@@ -21,7 +22,8 @@ import java.util.Map;
 @ConditionalOnExpression("!(${app.match.ai.enabled:false} and ${app.resume.ai.enabled:false})")
 public class KeywordMatchAnalyzer implements MatchAnalyzer {
 
-    static final String PROMPT_VERSION = "keyword-v1";
+    // v2：结果新增 requirements（RAG 检索的逐条要求证据）。
+    static final String PROMPT_VERSION = "keyword-v2";
     private static final int MAX_SUGGESTIONS = 5;
 
     /**
@@ -54,7 +56,7 @@ public class KeywordMatchAnalyzer implements MatchAnalyzer {
     }
 
     @Override
-    public MatchAnalysisResult analyze(JsonNode resumeContent, String jobTitle, String jobDescription) {
+    public MatchAnalysisResult analyze(JsonNode resumeContent, String jobTitle, String jobDescription, List<RequirementEvidence> evidence) {
         String jobText = ((jobTitle == null ? "" : jobTitle) + "\n" + jobDescription).toLowerCase(Locale.ROOT);
         Map<String, String> resumeSkills = ResumeText.declaredSkills(resumeContent);
         String resumeText = ResumeText.searchableText(resumeContent);
@@ -85,7 +87,8 @@ public class KeywordMatchAnalyzer implements MatchAnalyzer {
                 .map(term -> "If you have experience with " + term + ", mention it explicitly in your skills or projects.")
                 .toList();
 
-        MatchAnalysis analysis = new MatchAnalysis(summary, List.copyOf(matched), List.copyOf(missing), List.of(), suggestions);
+        MatchAnalysis analysis = new MatchAnalysis(summary, List.copyOf(matched), List.copyOf(missing), List.of(), suggestions,
+                evidence == null ? List.of() : List.copyOf(evidence));
         return new MatchAnalysisResult(score, analysis, null, null);
     }
 }

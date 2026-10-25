@@ -90,6 +90,17 @@ jwt:
   # 从环境变量读取 JWT 签名密钥
   secret: ${JWT_SECRET}
 app:
+  rag:
+    embedding:
+      # hash：本地确定性 embedding（默认，免费、离线）；dashscope：语义 embedding，需要 RESUME_AI_ENABLED=true。
+      # 切换后旧向量不会被误用（按 embedding_model 区分），新模型按需重新 embedding。
+      provider: ${RAG_EMBEDDING_PROVIDER:hash}
+      model: ${RAG_EMBEDDING_MODEL:text-embedding-v4}
+    # 每条 JD 要求取回的简历片段数。
+    top-k: 3
+    # 低于阈值的片段不作为证据。0.15 是 local-hash-v1 在评测集上的最佳阈值（docs/rag-evaluation.md）；
+    # 换成 dashscope 后相似度分布不同，必须用评测重新校准。
+    similarity-threshold: ${RAG_SIMILARITY_THRESHOLD:0.15}
   match:
     # 每个用户每天最多发起的匹配次数（只统计真正新建或重新发起的分析）。
     daily-quota-per-user: ${MATCH_DAILY_QUOTA:20}
@@ -98,7 +109,8 @@ app:
       enabled: ${MATCH_AI_ENABLED:${RESUME_AI_ENABLED:false}}
       model: ${MATCH_AI_MODEL:${BAILIAN_MODEL:qwen3.7-flash-2026-07-15}}
       # prompt、输出结构或打分规则变化时必须升级，旧结果不会被当成新结果复用。
-      prompt-version: ${MATCH_AI_PROMPT_VERSION:match-v1}
+      # v2：prompt 改为只放 RAG 检索到的证据，结果新增 requirements。
+      prompt-version: ${MATCH_AI_PROMPT_VERSION:match-v2}
       max-output-tokens: 2000
     worker:
       fixed-delay-ms: 1000

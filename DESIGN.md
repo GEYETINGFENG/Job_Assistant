@@ -263,3 +263,61 @@ The insert is `INSERT … ON CONFLICT DO NOTHING`. When identical requests race,
 ### Keyword fallback
 
 When AI is disabled (`MATCH_AI_ENABLED` or `RESUME_AI_ENABLED` false), `KeywordMatchAnalyzer` compares the resume's declared skills with the job text using symbol-aware word boundaries (so `Java` does not match `JavaScript`, and `C++` is matched correctly). It also lists common technologies the job mentions but the resume lacks. Results are deterministic, free, and marked `engine = KEYWORD` so the UI can say it ignores experience and seniority. Because `engine` is part of the unique key, keyword results never block a later LLM analysis.
+
+## 7. RAG Retrieval Layer (Lesson 7)
+
+Before Lesson 7 the matcher put the **whole resume JSON** into the prompt. Now the job description is split into requirements (`RequirementExtractor`, at most 15). For each requirement the matcher searches the resume for evidence, so the result can say *where* the resume supports a requirement, or that nothing does. Every number below comes from `RagEvaluationTest`. The full report is in [`docs/rag-evaluation.md`](docs/rag-evaluation.md), built from 4 fictional resumes and 34 labelled queries (28 with a relevant section, 6 with none).
+
+```text
+MatchWorker ─ ensureIndexed(version) ─ chunk ─ cache lookup ─ embed misses ─ resume_chunk (V19)
+            └ retrieve(version, JD) ─ requirements ─ embed ─ exact cosine top-3 ─ threshold ─ evidence
+            └ analyze(resume, JD, evidence)  →  keyword-v2 / match-v2
+```
+
+### Chunking: by resume structure
+
+`ResumeChunker` emits one chunk for the summary and one for the skills list, one per experience entry, one per project and one per education entry, and one for certificates. Each chunk gets a section label and a deterministic key (`experience:0`, `project:1`, `skills`), and the evaluation set is labelled with those keys. Resumes that only have raw text fall back to fixed-size 800/150 chunks.
+
+Comparing strategies at the same k is misleading. A resume cut into 800-character chunks has only about 2 chunks, so top-3 returns almost the whole resume and scores 100% Recall@3. The real constraint is how much evidence fits in the prompt, so the fair comparison uses the **same 800-character budget**:
+
+| Strategy | Recall | Context precision |
+|---|---|---|
+| structured | **89.3%** | 31.7% |
+| fixed-300/50 | 85.7% | 33.2% |
+| fixed-800/150 | 82.1% | 27.8% |
+
+Structured chunks also keep one experience entry together with its company and dates, so the evidence shown to the user reads as a single statement.
+
+### Top-k and threshold
+
+- **k = 3**: Recall@k is 55.4% at k = 1, 89.3% at k = 3 and 96.4% at k = 5. Going from 3 to 5 gains 7 points of recall but drops precision from 31% to 20%, and every extra chunk is prompt tokens.
+- **Similarity threshold 0.15**: vector search always returns k results, even when nothing in the resume is relevant. Without a threshold the model is handed unrelated text and encouraged to cite it. The threshold sweep chose 0.15 by Youden J: it rejects all 6 queries that have no relevant section, and keeps correct evidence for 32% of the positive queries. Lexical similarity scores are low in absolute terms, which is why the threshold sits so low. **The threshold belongs to the embedding model.** It must be re-tuned when switching to DashScope, whose cosine values have a completely different distribution.
+
+### Embeddings: pluggable, with a deterministic default
+
+`EmbeddingClient` has two implementations, chosen by `app.rag.embedding.provider`:
+
+- `local-hash-v1` (default): feature hashing of words and word bigrams into 1024 dimensions, with sublinear term frequency and L2 normalisation. It is lexical retrieval in vector form: free, offline and reproducible, so tests and the evaluation do not depend on an API key. It cannot match synonyms. "Microservices" vs "split the monolith into services" is a miss, and most of the remaining failures in the per-query table are of this kind.
+- `dashscope`: `text-embedding-v4` through the OpenAI-compatible `/embeddings` endpoint, in batches of up to 10 inputs. Each batch takes one rate-limiter token. Error classification is shared with the LLM client, so a rejected key goes straight to DEAD instead of being retried.
+
+**Stemming was tested and turned off.** It lowered Recall@3 from 89.3% to 82.1%. Stemming collapses generic words such as "application", "model" and "deploy" into the same features, and those words appear in almost every chunk, so the distinctive terms lose weight. (Building the stemmer also caught a bug where "databases" and "database" stemmed to different forms.)
+
+Planned follow-up: once the DashScope key works, let `RagEvaluationTest` choose the embedding client, then run the same evaluation with DashScope. Compare it with the hash baseline and re-tune k and the threshold for that model. Today the evaluation only runs with `local-hash-v1`.
+
+### Storage: pgvector, exact search, no ANN index
+
+`resume_chunk` (V19) stores the chunk text, `content_hash` (SHA-256), `embedding_model` and a `vector(1024)` column. Chunks are derived data, so they are deleted with their resume version (`ON DELETE CASCADE`) and can be rebuilt at any time.
+
+- **No HNSW / IVFFlat index.** Retrieval is always limited to one resume version, which has a handful to a few dozen chunks. The unique index `(resume_version_id, embedding_model, chunk_key)` finds those rows, and computing exact cosine distance over them is fast and gives 100% recall. An approximate index trades recall for speed, which only pays off when searching across a large corpus. Combined with a selective `WHERE resume_version_id = ?` filter it is actually worse: the index returns the nearest neighbours first and filters them afterwards, so it can return fewer than k results. An ANN index becomes worth adding for cross-resume search, such as "which of my resumes best fits this job".
+- **Model isolation**: vectors from different models are not in the same space. Every query filters on `embedding_model`. After switching models, old vectors are ignored and the version is re-embedded on demand.
+- **Idempotent indexing**: `INSERT … ON CONFLICT DO NOTHING` on the unique index. When two workers index the same version concurrently, each chunk is still stored once.
+
+### Embedding cache
+
+`ResumeIndexingService.ensureIndexed` looks up existing vectors by `(content_hash, embedding_model)` before calling the embedding model. A new resume version that changes one project entry re-embeds only that chunk; every unchanged section reuses its stored vector. Embedding calls happen outside the database transaction, so a slow API never holds a connection. The metric `rag.embedding.cache{result=hit|miss}` shows the hit rate.
+
+### Effect on matching
+
+- Each requirement becomes a `RequirementEvidence { requirement, covered, evidence[] }`. The UI's **Requirement coverage** list shows ✓/✗, the best excerpt, its section and its similarity.
+- The LLM prompt now sends the skills list plus deduplicated evidence excerpts instead of the whole resume. It falls back to the whole resume when retrieval finds nothing. Coverage comes from retrieval, not from the model, so the model cannot claim evidence that does not exist.
+- The output shape changed, so `prompt_version` was bumped to `keyword-v2` / `match-v2`. Earlier results stay stored but are not reused for new requests.

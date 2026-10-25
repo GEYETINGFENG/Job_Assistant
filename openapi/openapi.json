@@ -1412,6 +1412,21 @@
           }
         }
       },
+      "EvidenceSnippet" : {
+        "type" : "object",
+        "properties" : {
+          "excerpt" : {
+            "type" : "string"
+          },
+          "section" : {
+            "type" : "string"
+          },
+          "similarity" : {
+            "type" : "number",
+            "format" : "double"
+          }
+        }
+      },
       "JobCreateRequest" : {
         "type" : "object",
         "properties" : {
@@ -1504,6 +1519,12 @@
             "type" : "array",
             "items" : {
               "type" : "string"
+            }
+          },
+          "requirements" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/RequirementEvidence"
             }
           },
           "suggestions" : {
@@ -1648,6 +1669,23 @@
         "type" : "object",
         "properties" : {
           "refreshToken" : {
+            "type" : "string"
+          }
+        }
+      },
+      "RequirementEvidence" : {
+        "type" : "object",
+        "properties" : {
+          "covered" : {
+            "type" : "boolean"
+          },
+          "evidence" : {
+            "type" : "array",
+            "items" : {
+              "$ref" : "#/components/schemas/EvidenceSnippet"
+            }
+          },
+          "requirement" : {
             "type" : "string"
           }
         }

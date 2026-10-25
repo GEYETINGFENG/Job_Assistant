@@ -31,6 +31,20 @@ const STATUS_LABELS = {
   PROCESSING: "Analyzing your resume against this job…"
 };
 
+const SECTION_LABELS = {
+  SUMMARY: "Summary",
+  SKILLS: "Skills",
+  EXPERIENCE: "Experience",
+  PROJECT: "Project",
+  EDUCATION: "Education",
+  CERTIFICATE: "Certificates",
+  TEXT: "Resume text"
+};
+
+// RAG：JD 逐条要求在简历中检索到的证据；旧版本的匹配结果没有这一项。
+const requirements = computed(() => match.value?.analysis?.requirements ?? []);
+const coveredCount = computed(() => requirements.value.filter(item => item.covered).length);
+
 const scoreClass = computed(() => {
   const score = match.value?.score ?? 0;
   if (score >= 70) return "score-high";
@@ -227,6 +241,27 @@ onBeforeUnmount(() => controller?.abort());
           <li v-for="suggestion in match.analysis.suggestions" :key="suggestion">{{ suggestion }}</li>
         </ul>
       </template>
+
+      <template v-if="requirements.length">
+        <h4>Requirement coverage <span class="coverage-count">{{ coveredCount }} of {{ requirements.length }}</span></h4>
+        <ul class="requirements">
+          <li v-for="item in requirements" :key="item.requirement" :class="item.covered ? 'covered' : 'uncovered'">
+            <div class="requirement-line">
+              <span class="requirement-mark" :aria-label="item.covered ? 'Covered' : 'Not found'">{{ item.covered ? "✓" : "✗" }}</span>
+              <span>{{ item.requirement }}</span>
+            </div>
+            <blockquote v-if="item.covered && item.evidence?.length" class="evidence">
+              <span class="evidence-meta">
+                {{ SECTION_LABELS[item.evidence[0].section] ?? item.evidence[0].section }} ·
+                similarity {{ item.evidence[0].similarity?.toFixed(2) }}
+                <template v-if="item.evidence.length > 1"> · +{{ item.evidence.length - 1 }} more</template>
+              </span>
+              {{ item.evidence[0].excerpt }}
+            </blockquote>
+            <p v-else class="evidence-missing">No supporting evidence found in this resume.</p>
+          </li>
+        </ul>
+      </template>
     </section>
   </article>
 </template>
@@ -365,6 +400,67 @@ h4 {
   padding-left: 18px;
   color: #374151;
   line-height: 1.6;
+}
+
+.coverage-count {
+  margin-left: 6px;
+  color: #6b7280;
+  font-weight: 400;
+}
+
+.requirements {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.requirement-line {
+  display: flex;
+  gap: 8px;
+  color: #111827;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.requirement-mark {
+  flex: none;
+  width: 18px;
+  font-weight: 700;
+}
+
+.covered .requirement-mark {
+  color: #15803d;
+}
+
+.uncovered .requirement-mark {
+  color: #b91c1c;
+}
+
+.evidence {
+  margin: 6px 0 0 26px;
+  padding: 8px 10px;
+  color: #374151;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-line;
+  background: #f8fafc;
+  border-left: 3px solid #93c5fd;
+  border-radius: 4px;
+}
+
+.evidence-meta {
+  display: block;
+  margin-bottom: 2px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.evidence-missing {
+  margin: 4px 0 0 26px;
+  color: #9ca3af;
+  font-size: 13px;
 }
 
 .muted {

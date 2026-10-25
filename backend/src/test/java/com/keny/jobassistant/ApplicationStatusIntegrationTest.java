@@ -60,7 +60,7 @@ class ApplicationStatusIntegrationTest {
     private static final int CONCURRENT_ROUNDS = 20;
 
     @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(TestDatabaseImages.POSTGRES_WITH_PGVECTOR)
             .withDatabaseName("jobassistant_application_status_test")
             .withUsername("test")
             .withPassword("test");

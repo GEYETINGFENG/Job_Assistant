@@ -18,7 +18,14 @@ import com.keny.jobassistant.service.MatchService;
 import com.keny.jobassistant.service.MatchWorker;
 import com.keny.jobassistant.service.impl.JobServiceImpl;
 import com.keny.jobassistant.service.impl.MatchServiceImpl;
+import com.keny.jobassistant.config.EmbeddingConfig;
+import com.keny.jobassistant.repository.ResumeChunkRepository;
 import com.keny.jobassistant.service.match.KeywordMatchAnalyzer;
+import com.keny.jobassistant.service.rag.RequirementExtractor;
+import com.keny.jobassistant.service.rag.ResumeChunker;
+import com.keny.jobassistant.service.rag.ResumeIndexingService;
+import com.keny.jobassistant.service.rag.ResumeRetriever;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -70,14 +77,16 @@ import static org.mockito.Mockito.*;
 @Testcontainers
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Import({JobServiceImpl.class, MatchServiceImpl.class, MatchTaskRepository.class, KeywordMatchAnalyzer.class,
-        MatchWorker.class, JacksonAutoConfiguration.class})
+        MatchWorker.class, JacksonAutoConfiguration.class, EmbeddingConfig.class, ResumeChunkRepository.class,
+        ResumeChunker.class, RequirementExtractor.class, ResumeIndexingService.class, ResumeRetriever.class,
+        SimpleMeterRegistry.class})
 @Tag("integration")
 class MatchIntegrationTest {
 
     private static final long USER_ID = 1L;
 
     @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(TestDatabaseImages.POSTGRES_WITH_PGVECTOR)
             .withDatabaseName("jobassistant_match_test")
             .withUsername("test")
             .withPassword("test");
@@ -112,7 +121,7 @@ class MatchIntegrationTest {
 
     @BeforeEach
     void setUpData() {
-        jdbcTemplate.execute("TRUNCATE match_record, application_event, application, resume_version, resume, job, users RESTART IDENTITY CASCADE");
+        jdbcTemplate.execute("TRUNCATE resume_chunk, match_record, application_event, application, resume_version, resume, job, users RESTART IDENTITY CASCADE");
         jdbcTemplate.update("INSERT INTO users (id, user_account, user_password) VALUES (?, 'alice', 'hash')", USER_ID);
         Long resumeId = jdbcTemplate.queryForObject("""
                 INSERT INTO resume (user_id, resume_name, latest_version_number) VALUES (?, 'Backend Resume', 1) RETURNING id
@@ -186,6 +195,9 @@ class MatchIntegrationTest {
         assertThat(completed.getAnalysis().matchedSkills()).containsExactly("Java", "Spring Boot");
         assertThat(completed.getAnalysis().missingSkills()).containsExactly("Kafka");
         assertThat(completed.getScore()).isEqualTo(67);
+        // RAG：JD 被拆成要求并在简历里检索证据。
+        assertThat(completed.getAnalysis().requirements()).isNotEmpty();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM resume_chunk", Integer.class)).isPositive();
         assertThat(completed.getAttemptCount()).isEqualTo(1);
 
         MatchDTO repeated = matchService.createMatch(matchRequest(jobId));

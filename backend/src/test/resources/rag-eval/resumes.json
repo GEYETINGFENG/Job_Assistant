@@ -1,0 +1,165 @@
+{
+  "backend": {
+    "name": "Alex Chen",
+    "summary": "Backend engineer with six years building payment and e-commerce platforms on the JVM.",
+    "skills": ["Java", "Spring Boot", "PostgreSQL", "Redis", "Kafka", "Docker", "Kubernetes", "AWS"],
+    "experience": [
+      {
+        "company": "Paystream",
+        "position": "Senior Backend Engineer",
+        "startDate": "2021",
+        "endDate": "Present",
+        "description": "Owned the card payment service handling 3M transactions per day. Introduced idempotency keys so retried client requests never charged a customer twice. Built an event pipeline on Kafka processing 50k messages per second for settlement and fraud signals. Cut p95 checkout latency by 40% through connection pooling and async I/O."
+      },
+      {
+        "company": "Shoply",
+        "position": "Software Engineer",
+        "startDate": "2018",
+        "endDate": "2021",
+        "description": "Split the legacy monolith into twelve Spring Boot services behind an API gateway. Added a Redis read-through cache for product pages, reducing database load by 60%. Tuned PostgreSQL queries with composite indexes and EXPLAIN ANALYZE, bringing the slowest report from 9 seconds to 300 ms."
+      }
+    ],
+    "projects": [
+      {
+        "name": "Distributed Throttle",
+        "role": "Author",
+        "technologies": ["Java", "Redis", "Lua"],
+        "description": "Open-source token bucket library that limits request rates across many application instances using atomic Redis Lua scripts."
+      },
+      {
+        "name": "Job Tracker",
+        "role": "Maintainer",
+        "technologies": ["Vue", "Spring Boot", "PostgreSQL"],
+        "description": "Kanban board for tracking job applications with drag-and-drop status changes and reminders."
+      }
+    ],
+    "education": [
+      {"school": "University of Illinois Urbana-Champaign", "degree": "B.S.", "major": "Computer Science", "startDate": "2014", "endDate": "2018", "description": ""}
+    ],
+    "certificates": [
+      {"name": "AWS Certified Developer - Associate", "issuer": "Amazon Web Services", "date": "2022"}
+    ]
+  },
+  "ml": {
+    "name": "Priya Nair",
+    "summary": "Machine learning engineer focused on recommendation systems and applied NLP.",
+    "skills": ["Python", "PyTorch", "TensorFlow", "scikit-learn", "SQL", "Spark", "Airflow", "MLflow"],
+    "experience": [
+      {
+        "company": "Streamly",
+        "position": "Machine Learning Engineer",
+        "startDate": "2022",
+        "endDate": "Present",
+        "description": "Built the two-tower candidate retrieval and ranking models behind the home feed. Ran A/B tests with the product team; the new ranker lifted click-through rate by 6%. Maintained training pipelines on Spark and Airflow with model tracking in MLflow."
+      },
+      {
+        "company": "HealthCo",
+        "position": "Data Scientist",
+        "startDate": "2019",
+        "endDate": "2022",
+        "description": "Developed an XGBoost model that flags members likely to cancel their plan, now used by the retention team. Created a shared feature store and executive dashboards."
+      }
+    ],
+    "projects": [
+      {
+        "name": "Docs Assistant",
+        "role": "",
+        "technologies": ["Python", "FAISS", "OpenAI API"],
+        "description": "Question answering over internal documentation: chunked pages, embedded them, searched the nearest neighbours in FAISS and passed the top passages to an LLM. Measured recall@k on a labelled question set."
+      },
+      {
+        "name": "Plant Disease Classifier",
+        "role": "",
+        "technologies": ["PyTorch", "ONNX"],
+        "description": "Fine-tuned a convolutional network with transfer learning and served it from an ONNX runtime behind a REST endpoint."
+      }
+    ],
+    "education": [
+      {"school": "University of Washington", "degree": "M.S.", "major": "Statistics", "startDate": "2017", "endDate": "2019", "description": ""}
+    ],
+    "certificates": [
+      {"name": "TensorFlow Developer Certificate", "issuer": "Google", "date": "2021"}
+    ]
+  },
+  "frontend": {
+    "name": "Maya Lopez",
+    "summary": "Frontend engineer who cares about accessible, fast interfaces.",
+    "skills": ["TypeScript", "React", "Next.js", "Vue", "CSS", "Jest", "Playwright", "Figma"],
+    "experience": [
+      {
+        "company": "Designly",
+        "position": "Frontend Engineer",
+        "startDate": "2021",
+        "endDate": "Present",
+        "description": "Led the shared React component library used by four product teams. Audited every component against WCAG 2.1 AA and fixed keyboard navigation and screen reader labels. Reduced the JavaScript bundle by 30% with code splitting, improving Largest Contentful Paint."
+      },
+      {
+        "company": "AgencyX",
+        "position": "Web Developer",
+        "startDate": "2019",
+        "endDate": "2021",
+        "description": "Shipped responsive marketing sites for retail clients, improving organic search rankings through structured data, meta tags and sitemaps. Built landing page variants for conversion experiments."
+      }
+    ],
+    "projects": [
+      {
+        "name": "Pair Notes",
+        "role": "",
+        "technologies": ["TypeScript", "WebSockets", "Yjs"],
+        "description": "Shared note editor where several people type at once, syncing edits over WebSockets with CRDT conflict resolution."
+      },
+      {
+        "name": "Budget Buddy",
+        "role": "",
+        "technologies": ["Vue", "IndexedDB"],
+        "description": "Personal finance app that keeps working without a network connection using service workers and local storage, installable on phones."
+      }
+    ],
+    "education": [
+      {"school": "Rhode Island School of Design", "degree": "B.F.A.", "major": "Graphic Design", "startDate": "2014", "endDate": "2018", "description": ""}
+    ],
+    "certificates": []
+  },
+  "sre": {
+    "name": "Sam Okafor",
+    "summary": "Reliability and data platform engineer.",
+    "skills": ["Go", "Python", "Terraform", "AWS", "Kubernetes", "Prometheus", "Grafana", "Airflow", "dbt", "Snowflake"],
+    "experience": [
+      {
+        "company": "CloudNine",
+        "position": "Site Reliability Engineer",
+        "startDate": "2021",
+        "endDate": "Present",
+        "description": "Joined the weekly pager rotation for 40 production services and led postmortems after major outages. Defined SLOs and error budgets with service owners and built Prometheus alerts and Grafana dashboards, cutting mean time to recovery by half."
+      },
+      {
+        "company": "RetailCo",
+        "position": "Data Engineer",
+        "startDate": "2018",
+        "endDate": "2021",
+        "description": "Built nightly batch pipelines orchestrated by Airflow that transform sales data with dbt models into Snowflake. Added data quality checks that stopped bad loads before they reached reports."
+      }
+    ],
+    "projects": [
+      {
+        "name": "Landing Zone Modules",
+        "role": "",
+        "technologies": ["Terraform", "AWS"],
+        "description": "Reusable Terraform modules that provision a multi-account AWS setup with networking, IAM roles and guardrails from code."
+      },
+      {
+        "name": "Log Insights",
+        "role": "",
+        "technologies": ["Kafka", "ClickHouse", "Go"],
+        "description": "Pipeline that ships application logs through Kafka into ClickHouse for fast ad-hoc queries."
+      }
+    ],
+    "education": [
+      {"school": "University of Lagos", "degree": "B.Eng.", "major": "Computer Engineering", "startDate": "2013", "endDate": "2018", "description": ""}
+    ],
+    "certificates": [
+      {"name": "Certified Kubernetes Administrator", "issuer": "CNCF", "date": "2022"},
+      {"name": "AWS Certified Solutions Architect - Associate", "issuer": "Amazon Web Services", "date": "2023"}
+    ]
+  }
+}

@@ -7,6 +7,7 @@ import com.keny.jobassistant.exception.BusinessException;
 import com.keny.jobassistant.exception.LlmRateLimitedException;
 import com.keny.jobassistant.exception.MatchAnalysisException;
 import com.keny.jobassistant.model.ai.MatchAnalysisResult;
+import com.keny.jobassistant.model.ai.RequirementEvidence;
 import com.keny.jobassistant.model.entity.MatchRecord;
 import com.keny.jobassistant.model.enums.MatchStatus;
 import com.keny.jobassistant.model.task.MatchTaskClaim;
@@ -14,6 +15,8 @@ import com.keny.jobassistant.repository.JobRepository;
 import com.keny.jobassistant.repository.MatchRecordRepository;
 import com.keny.jobassistant.repository.MatchTaskRepository;
 import com.keny.jobassistant.repository.ResumeVersionRepository;
+import com.keny.jobassistant.service.rag.ResumeIndexingService;
+import com.keny.jobassistant.service.rag.ResumeRetriever;
 import com.keny.jobassistant.service.support.TaskLifecycleGate;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -26,6 +29,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -48,6 +52,8 @@ public class MatchWorker implements SmartLifecycle {
     private final ResumeVersionRepository resumeVersionRepository;
     private final JobRepository jobRepository;
     private final MatchAnalyzer matchAnalyzer;
+    private final ResumeIndexingService indexingService;
+    private final ResumeRetriever retriever;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
     private final int batchSize;
@@ -61,6 +67,8 @@ public class MatchWorker implements SmartLifecycle {
                        ResumeVersionRepository resumeVersionRepository,
                        JobRepository jobRepository,
                        MatchAnalyzer matchAnalyzer,
+                       ResumeIndexingService indexingService,
+                       ResumeRetriever retriever,
                        ObjectMapper objectMapper,
                        PlatformTransactionManager transactionManager,
                        @Value("${app.match.worker.batch-size:3}") int batchSize,
@@ -72,6 +80,8 @@ public class MatchWorker implements SmartLifecycle {
         this.resumeVersionRepository = resumeVersionRepository;
         this.jobRepository = jobRepository;
         this.matchAnalyzer = matchAnalyzer;
+        this.indexingService = indexingService;
+        this.retriever = retriever;
         this.objectMapper = objectMapper;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.batchSize = Math.max(1, batchSize);
@@ -127,7 +137,10 @@ public class MatchWorker implements SmartLifecycle {
     void processClaimedTask(MatchTaskClaim claim) {
         try {
             AnalysisInput input = loadInput(claim);
-            MatchAnalysisResult result = matchAnalyzer.analyze(input.resumeContent(), input.jobTitle(), input.jobDescription());
+            // RAG：首次匹配某个简历版本时切块并 embedding（之后复用），再为 JD 每条要求检索证据。
+            indexingService.ensureIndexed(claim.resumeVersionId());
+            List<RequirementEvidence> evidence = retriever.retrieve(claim.resumeVersionId(), input.jobDescription());
+            MatchAnalysisResult result = matchAnalyzer.analyze(input.resumeContent(), input.jobTitle(), input.jobDescription(), evidence);
             if (saveCompleted(claim, result)) {
                 log.info("匹配任务完成，matchId={}, score={}, promptTokens={}, completionTokens={}",
                         claim.matchId(), result.score(), result.promptTokens(), result.completionTokens());
