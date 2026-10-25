@@ -52,21 +52,21 @@ async function handleLogout() {
         <p>Keep your resumes current and see how each one measures up to the jobs you want.</p>
       </section>
 
-      <section class="section" aria-labelledby="resumes-title">
-        <h2 id="resumes-title" class="section-title">Resumes</h2>
-        <div class="content-grid">
+      <!-- 宽屏三栏工作台：简历 | 职位 | 匹配结果；每栏独立往下排，不会因为相邻卡片高度不同留出大块空白。 -->
+      <div class="workspace">
+        <section class="column column-resumes" aria-label="Resumes">
           <ResumeUploadPanel @uploaded="id => (uploadedResumeId = id)" />
           <ResumeListPanel :highlight-id="uploadedResumeId" />
-        </div>
-      </section>
+        </section>
 
-      <section class="section" aria-labelledby="jobs-title">
-        <h2 id="jobs-title" class="section-title">Jobs &amp; matching</h2>
-        <div class="content-grid">
+        <section class="column column-jobs" aria-label="Jobs">
           <JobPanel :selected-job-id="selectedJob?.id ?? null" @select="job => (selectedJob = job)" />
+        </section>
+
+        <section class="column column-match" aria-label="Match">
           <MatchPanel :job="selectedJob" />
-        </div>
-      </section>
+        </section>
+      </div>
     </main>
   </div>
 </template>
@@ -89,14 +89,14 @@ async function handleLogout() {
 }
 
 .nav-inner {
-  max-width: 1120px;
+  max-width: 1600px;
   height: 52px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 32px;
 }
 
 .wordmark {
@@ -142,53 +142,80 @@ async function handleLogout() {
 }
 
 .content {
-  max-width: 1120px;
+  max-width: 1600px;
   margin: 0 auto;
-  padding: 0 24px 80px;
+  padding: 0 32px 64px;
 }
 
 .hero {
-  padding: 64px 0 40px;
+  padding: 36px 0 24px;
 }
 
 .hero h1 {
   margin: 0;
-  font-size: 48px;
+  font-size: 36px;
   font-weight: 600;
-  line-height: 1.08;
-  letter-spacing: -0.03em;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
 }
 
 .hero p {
-  max-width: 560px;
-  margin: 14px 0 0;
+  margin: 8px 0 0;
   color: var(--text-secondary);
-  font-size: 21px;
-  line-height: 1.38;
-  letter-spacing: -0.01em;
+  font-size: 17px;
+  line-height: 1.4;
 }
 
-.section + .section {
-  margin-top: 56px;
-}
-
-.section-title {
-  margin: 0 0 18px;
-  font-size: 28px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-
-.content-grid {
+/* 默认（窄屏）单栏；中屏两栏，匹配结果接在职位下面；宽屏三栏，匹配结果最宽。 */
+.workspace {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "resumes" "jobs" "match";
   align-items: start;
   gap: 20px;
 }
 
-@media (max-width: 900px) {
-  .content-grid {
-    grid-template-columns: 1fr;
+.column {
+  min-width: 0;
+  display: grid;
+  gap: 20px;
+}
+
+.column-resumes {
+  grid-area: resumes;
+}
+
+.column-jobs {
+  grid-area: jobs;
+}
+
+.column-match {
+  grid-area: match;
+}
+
+@media (min-width: 900px) {
+  .workspace {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "resumes jobs"
+      "resumes match";
+  }
+}
+
+@media (min-width: 1280px) {
+  .workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.35fr);
+    grid-template-areas: "resumes jobs match";
+  }
+
+  /* 匹配结果是主要输出：滚动时停在导航栏下方，内容超过一屏时在卡片内滚动。 */
+  .column-match {
+    position: sticky;
+    top: 72px;
+    max-height: calc(100vh - 92px);
+    overflow-y: auto;
+    border-radius: var(--radius-card);
+    scrollbar-width: thin;
   }
 }
 
@@ -203,23 +230,15 @@ async function handleLogout() {
   }
 
   .hero {
-    padding: 40px 0 28px;
+    padding: 28px 0 20px;
   }
 
   .hero h1 {
-    font-size: 34px;
+    font-size: 30px;
   }
 
   .hero p {
-    font-size: 17px;
-  }
-
-  .section + .section {
-    margin-top: 40px;
-  }
-
-  .section-title {
-    font-size: 24px;
+    font-size: 16px;
   }
 }
 </style>
