@@ -26,7 +26,7 @@ $env:LLM_RATE_LIMIT_REFILL_PER_SECOND = '0.1'
 - 在短事务内锁定上传会话，核对仍为 `PROCESSING` 且 `claimToken` 一致。
 - 改回 `PENDING`，`nextAttemptAt` 设置为当前时间加等待时长，至少 1 秒。
 - 撤销领取时增加的那一次 `attemptCount`，已有失败次数保留；清除 `claimToken` 和 `processingStartedAt`。
-- `lastErrorCode` 为 `LLM_RATE_LIMITED`；保留 S3 staging/processing 对象，只按原逻辑删除本轮本地临时文件。
+- `lastErrorCode` 为 `LLM_RATE_LIMITED`（同一份内容正在被另一个任务解析、没拿到防击穿的解析锁时为 `PARSE_IN_PROGRESS`，固定等待 5 秒，见 DESIGN.md 第 9 节）；保留 S3 staging/processing 对象，只按原逻辑删除本轮本地临时文件。
 - 立即结束本轮处理，不在线程内 sleep。到期只是重新竞争额度，不保证到期必定获准，也不保证任务间严格公平。
 
 Redis 缓存读取失败、令牌桶故障或 Lua 返回非法结果属于系统错误，仍按现有指数退避处理，默认最多 3 次后进入 `DEAD`。LLM 成功后缓存或统计写入失败仍只记录日志，不推翻成功结果。

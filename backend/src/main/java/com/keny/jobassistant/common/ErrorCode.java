@@ -29,6 +29,8 @@ public enum ErrorCode {
     // 其他数据库唯一约束 / 外键冲突。
     DATA_CONFLICT(40904, HttpStatus.CONFLICT, "Data conflict", "The submitted data conflicts with an existing resource"),
     // 用户当日的匹配额度已用完（LLM 按量付费，按用户设每日预算上限）。
+    // 同一份文件最近已经连续解析失败（扫描件、不是简历等），短时间内不再调用模型（防缓存穿透）。
+    RESUME_UNPARSEABLE(42201, HttpStatus.UNPROCESSABLE_ENTITY, "Resume could not be parsed", ""),
     QUOTA_EXCEEDED(42900, HttpStatus.TOO_MANY_REQUESTS, "Daily quota exceeded", ""),
     SYSTEM_ERROR(50000, HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error", ""),
     // AI 服务拒绝请求（例如 401/403 Key 无效、400 请求非法）：重试也不会成功，异步任务直接进入 DEAD。

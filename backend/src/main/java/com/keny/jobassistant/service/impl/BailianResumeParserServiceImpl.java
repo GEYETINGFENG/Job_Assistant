@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.keny.jobassistant.common.ErrorCode;
 import com.keny.jobassistant.exception.BusinessException;
+import com.keny.jobassistant.exception.ResumeParseInProgressException;
 import com.keny.jobassistant.model.ai.ResumeParsedData;
 import io.micrometer.core.instrument.MeterRegistry;
 import com.keny.jobassistant.model.document.ResumeDocumentContent;
@@ -44,6 +45,9 @@ import org.springframework.web.multipart.MultipartFile;
         havingValue = "true"
 )
 public class BailianResumeParserServiceImpl implements ResumeParserService {
+
+    /** 另一个任务正在解析同一份内容时，等这么久再试；一次解析通常在 10–30 秒内完成。 */
+    static final long IN_PROGRESS_RETRY_MILLIS = 5000;
 
     // 阿里云百炼 API 客户端
     private final RestClient bailianRestClient;
@@ -102,6 +106,26 @@ public class BailianResumeParserServiceImpl implements ResumeParserService {
         if (cachedResult.isPresent()) {
             return cachedResult.get().withoutUsage();
         }
+        // 防穿透：这份内容最近已经连续解析失败，再调用模型也只会失败，直接拒绝（不可重试，任务进入 DEAD）。
+        if (cacheService.failedRecently(cacheKey)) {
+            throw new BusinessException(ErrorCode.RESUME_UNPARSEABLE,
+                    "This file could not be parsed recently. Check that it is a text-based resume, or try again later.");
+        }
+        // 防击穿：同一份内容只让一个任务调用模型；没拿到锁的任务稍后重试，届时命中缓存。
+        try (ResumeParseCacheService.ParseLock lock = cacheService.tryLock(cacheKey)) {
+            if (!lock.acquired()) {
+                throw new ResumeParseInProgressException(IN_PROGRESS_RETRY_MILLIS);
+            }
+            // 二次检查：在 find 和拿到锁之间，持有锁的任务可能刚好写完缓存。
+            var justCached = cacheService.peek(cacheKey);
+            if (justCached.isPresent()) {
+                return justCached.get().withoutUsage();
+            }
+            return callModel(document, cacheKey);
+        }
+    }
+
+    private ResumeParseResult callModel(ResumeDocumentContent document, String cacheKey) {
         String aiInputText = document.text();
 
         // 限制发送给模型的文本长度，避免异常 PDF 导致请求过大,直接截断
@@ -124,10 +148,17 @@ public class BailianResumeParserServiceImpl implements ResumeParserService {
             Integer promptTokens = usage(responseBody, "prompt_tokens");
             Integer completionTokens = usage(responseBody, "completion_tokens");
             recordUsage(promptTokens, completionTokens);
-            // 提取 AI 真正输出内容
-            String resultContent = extractResultContent(responseBody);
-            // 业务校验：结构、类型、长度，规范化，并清空原文里不存在的姓名 / 邮箱 / 电话。
-            ObjectNode validated = ResumeParseValidator.validate(objectMapper.readTree(resultContent), aiInputText);
+            ObjectNode validated;
+            try {
+                // 提取 AI 真正输出内容
+                String resultContent = extractResultContent(responseBody);
+                // 业务校验：结构、类型、长度，规范化，并清空原文里不存在的姓名 / 邮箱 / 电话。
+                validated = ResumeParseValidator.validate(objectMapper.readTree(resultContent), aiInputText);
+            } catch (BusinessException | JsonProcessingException exception) {
+                // 模型有响应但给不出合法简历：计入这份内容的失败次数（防穿透）。
+                cacheService.recordInvalidOutput(cacheKey);
+                throw exception;
+            }
             // 再转换成 ResumeParsedData(Java对象)，保证保存的结构与固定数据结构一致
             ResumeParsedData parsedData = objectMapper.treeToValue(validated, ResumeParsedData.class);
             // 保留原来的 AI 结构化字段，同时将 Tika 检测结果和原始正文写入 parsedJson

@@ -153,6 +153,13 @@ app:
       # v2：解析结果经过业务校验和规范化（去重、去占位对象、清空原文中不存在的联系方式），旧缓存不再复用。
       prompt-version: ${RESUME_AI_PROMPT_VERSION:v2}
       cache-ttl: ${RESUME_AI_CACHE_TTL:24h}
+      # 防雪崩：每次写入的 TTL 在基础值上下随机浮动 ±10%，同一批写入不会同时过期。
+      cache-ttl-jitter: 0.1
+      # 防穿透：同一份内容在 10 分钟内连续 3 次解析失败后，这段时间内不再调用模型。
+      negative-cache-ttl: 10m
+      negative-cache-threshold: 3
+      # 防击穿：同一份内容同时只允许一个任务调用模型；锁 2 分钟后自动过期，持有者崩溃也不会永久占住。
+      parse-lock-ttl: 2m
       rate-limit:
         # 所有实例必须使用相同 Redis 数据库和限流参数，一个令牌对应一次模型请求。
         capacity: ${LLM_RATE_LIMIT_CAPACITY:3}

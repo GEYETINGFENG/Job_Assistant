@@ -3,6 +3,7 @@ package com.keny.jobassistant.service;
 import com.keny.jobassistant.common.ErrorCode;
 import com.keny.jobassistant.exception.BusinessException;
 import com.keny.jobassistant.exception.LlmRateLimitedException;
+import com.keny.jobassistant.exception.ResumeParseInProgressException;
 import com.keny.jobassistant.model.document.ResumeParseResult;
 import com.keny.jobassistant.model.entity.Resume;
 import com.keny.jobassistant.model.entity.ResumeUploadSession;
@@ -169,7 +170,7 @@ public class ResumeUploadWorker implements SmartLifecycle {
             s3StorageService.deleteObjectQuietly(claim.uploadObjectKey());
             log.info("简历上传任务处理完成，uploadId={}, resumeId={}, version={}", claim.uploadId(), result.resumeId(), result.versionNumber());
         } catch (LlmRateLimitedException exception) {
-            deferRateLimitedTask(claim, exception.getRetryAfterMillis());
+            deferRateLimitedTask(claim, exception);
         } catch (BusinessException exception) {
             handleFailure(claim, Integer.toString(exception.getCode()), businessErrorMessage(exception),
                     isRetryable(exception), finalObjectKey, exception);
@@ -184,9 +185,12 @@ public class ResumeUploadWorker implements SmartLifecycle {
         }
     }
 
-    /** 限流只重新排队；行锁和 claim token 保证旧 worker 不能撤销新 worker 的领取计数。 */
-    private void deferRateLimitedTask(ResumeUploadTaskClaim claim, long retryAfterMillis) {
-        long delayMillis = Math.max(1000, retryAfterMillis);
+    /**
+     * 限流或同一份内容正在被别的任务解析时只重新排队；行锁和 claim token 保证旧 worker 不能撤销新 worker 的领取计数。
+     */
+    private void deferRateLimitedTask(ResumeUploadTaskClaim claim, LlmRateLimitedException exception) {
+        long delayMillis = Math.max(1000, exception.getRetryAfterMillis());
+        boolean inProgress = exception instanceof ResumeParseInProgressException;
         Boolean deferred = transactionTemplate.execute(status -> {
             ResumeUploadSession session = uploadSessionRepository.findForUpdateById(claim.uploadId()).orElse(null);
             if (session == null || session.getStatus() != ResumeUploadStatus.PROCESSING
@@ -199,14 +203,14 @@ public class ResumeUploadWorker implements SmartLifecycle {
             session.setNextAttemptAt(now.plusMillis(delayMillis));
             session.setProcessingStartedAt(null);
             session.setClaimToken(null);
-            session.setLastErrorCode("LLM_RATE_LIMITED");
-            session.setLastErrorMessage("Waiting for LLM request quota");
+            session.setLastErrorCode(inProgress ? "PARSE_IN_PROGRESS" : "LLM_RATE_LIMITED");
+            session.setLastErrorMessage(inProgress ? "The same file is being parsed by another task" : "Waiting for LLM request quota");
             session.setUpdateTime(now);
             uploadSessionRepository.save(session);
             return true;
         });
         if (Boolean.TRUE.equals(deferred)) {
-            log.info("简历任务等待 LLM 额度，uploadId={}, retryAfterMillis={}", claim.uploadId(), delayMillis);
+            log.info("简历任务延后处理（LLM 限流或同一份内容正在解析），uploadId={}, retryAfterMillis={}", claim.uploadId(), delayMillis);
         } else {
             log.info("忽略失效 worker 的限流结果，uploadId={}, claimToken={}", claim.uploadId(), claim.claimToken());
         }
