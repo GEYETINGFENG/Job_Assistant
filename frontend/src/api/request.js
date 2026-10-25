@@ -1,28 +1,28 @@
-import axios from "axios";
+import { createApiClient } from "./apiClient";
+import { tokenStorage } from "../auth/tokenStorage";
 
-const request = axios.create({
-    baseURL: import.meta.env.VITE_API_BASE_URL,
-    timeout: 10000
-});
+let globalErrorHandler = () => {};
+let redirectingToLogin = false;
 
-request.interceptors.request.use(config => {
-    const accessToken = localStorage.getItem("accessToken");
-    const tokenType = localStorage.getItem("tokenType") || "Bearer";
+/**
+ * 由 main.js 注册全局提示（toast）。request 本身不依赖 UI 组件。
+ */
+export function setGlobalErrorHandler(handler) {
+  globalErrorHandler = handler;
+}
 
-    if (accessToken) config.headers.Authorization = `${tokenType} ${accessToken}`;
-    return config;
-}, error => Promise.reject(error));
-
-request.interceptors.response.use(response => response, error => {
-    if (error.response?.status === 401) {
-        localStorage.removeItem("accessToken");
-        localStorage.removeItem("tokenType");
-        localStorage.removeItem("currentUser");
-
-        if (window.location.pathname !== "/login") window.location.href = "/login";
-    }
-
-    return Promise.reject(error);
+const request = createApiClient({
+  baseURL: import.meta.env.VITE_API_BASE_URL,
+  tokenStorage,
+  onGenericError: error => globalErrorHandler(error),
+  onSessionExpired() {
+    tokenStorage.clear();
+    // 多个请求同时失效时只跳转一次。
+    if (redirectingToLogin || window.location.pathname === "/login") return;
+    redirectingToLogin = true;
+    const redirect = encodeURIComponent(window.location.pathname + window.location.search);
+    window.location.assign(`/login?redirect=${redirect}&expired=1`);
+  }
 });
 
 export default request;

@@ -13,6 +13,13 @@ const form = reactive({
 });
 const loading = ref(false);
 const errorMessage = ref("");
+// refresh token 也失效、被拦截器送回登录页时给出说明，而不是一声不响地跳转。
+const sessionExpired = route.query.expired === "1";
+
+function safeRedirect(target) {
+  // 只允许站内路径，防止 ?redirect=https://evil.example 这类开放重定向。
+  return typeof target === "string" && target.startsWith("/") && !target.startsWith("//") ? target : "/dashboard";
+}
 
 async function handleLogin() {
   errorMessage.value = "";
@@ -25,20 +32,16 @@ async function handleLogin() {
   loading.value = true;
 
   try {
-    const response = await userLogin({
+    const loginData = await userLogin({
       userAccount: form.userAccount.trim(),
       userPassword: form.userPassword
     });
 
-    if (response.data.code !== 0) {
-      errorMessage.value = response.data.message || "Login failed";
-      return;
-    }
-
-    authStore.setLoginData(response.data.data);
-    await router.replace(route.query.redirect || "/dashboard");
+    authStore.setLoginData(loginData);
+    await router.replace(safeRedirect(route.query.redirect));
   } catch (error) {
-    errorMessage.value = error.response?.data?.message || "Unable to connect to the server";
+    // 网络 / 5xx 已由全局提示处理；这里展示账号密码错误等本页面语义。
+    if (!error.isGeneric) errorMessage.value = error.message;
   } finally {
     loading.value = false;
   }
@@ -65,6 +68,7 @@ async function handleLogin() {
           <input id="userPassword" v-model="form.userPassword" type="password" autocomplete="current-password" placeholder="Enter your password">
         </div>
 
+        <p v-if="sessionExpired && !errorMessage" class="info-message">Your session has expired. Please sign in again.</p>
         <p v-if="errorMessage" class="error-message">{{ errorMessage }}</p>
 
         <button type="submit" :disabled="loading">{{ loading ? "Signing in..." : "Sign In" }}</button>
@@ -174,6 +178,16 @@ async function handleLogin() {
 .login-form button:disabled {
   cursor: not-allowed;
   opacity: 0.65;
+}
+
+.info-message {
+  margin: 0;
+  padding: 10px 12px;
+  color: #1e40af;
+  font-size: 13px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
 }
 
 .error-message {
