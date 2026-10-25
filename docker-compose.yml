@@ -3,7 +3,8 @@
 services:
   postgres:
     # 与本机开发库保持同一大版本，方便 pg_dump / 导入
-    image: postgres:18-alpine
+    # 带 pgvector 扩展的 PostgreSQL（V19 迁移创建 vector 扩展，用于简历向量检索）。
+    image: pgvector/pgvector:pg18
     environment:
       POSTGRES_DB: jobassistant
       POSTGRES_USER: postgres

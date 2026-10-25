@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ApplicationStatusMigrationIntegrationTest {
 
     @Container
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(TestDatabaseImages.POSTGRES_WITH_PGVECTOR)
             .withDatabaseName("jobassistant_application_migration_test")
             .withUsername("test")
             .withPassword("test");

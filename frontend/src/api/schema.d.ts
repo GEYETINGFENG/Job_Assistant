@@ -595,6 +595,12 @@ export interface components {
             description?: string;
             message?: string;
         };
+        EvidenceSnippet: {
+            excerpt?: string;
+            section?: string;
+            /** Format: double */
+            similarity?: number;
+        };
         JobCreateRequest: {
             companyName?: string;
             description?: string;
@@ -626,6 +632,7 @@ export interface components {
             gaps?: string[];
             matchedSkills?: string[];
             missingSkills?: string[];
+            requirements?: components["schemas"]["RequirementEvidence"][];
             suggestions?: string[];
             summary?: string;
         };
@@ -686,6 +693,11 @@ export interface components {
         };
         RefreshTokenRequest: {
             refreshToken: string;
+        };
+        RequirementEvidence: {
+            covered?: boolean;
+            evidence?: components["schemas"]["EvidenceSnippet"][];
+            requirement?: string;
         };
         ResumeCacheStatsDTO: {
             /** Format: int64 */

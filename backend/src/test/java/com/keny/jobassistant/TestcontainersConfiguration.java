@@ -23,7 +23,7 @@ public class TestcontainersConfiguration {
     @Bean
     @ServiceConnection
     public PostgreSQLContainer<?> postgreSQLContainer() {
-        return new PostgreSQLContainer<>("postgres:16-alpine")
+        return new PostgreSQLContainer<>(TestDatabaseImages.POSTGRES_WITH_PGVECTOR)
                 .withDatabaseName("jobassistant_test")
                 .withUsername("test")
                 .withPassword("test");

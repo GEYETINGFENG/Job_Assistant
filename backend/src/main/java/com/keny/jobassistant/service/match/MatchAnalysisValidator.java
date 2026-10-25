@@ -48,7 +48,7 @@ public final class MatchAnalysisValidator {
         if (missing.stream().anyMatch(skill -> matchedLower.contains(skill.toLowerCase(Locale.ROOT)))) {
             throw invalid("A skill cannot be both matched and missing");
         }
-        return new ValidatedAnalysis(score, new MatchAnalysis(summary, matched, missing, gaps, suggestions));
+        return new ValidatedAnalysis(score, new MatchAnalysis(summary, matched, missing, gaps, suggestions, null));
     }
 
     private static int readScore(JsonNode node) {
