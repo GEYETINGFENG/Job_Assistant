@@ -10,7 +10,7 @@ class ResumeRetrieverCalibrationTest {
     @Test
     void shouldUseCalibrationOfTheEmbeddingModel() {
         assertThat(ResumeRetriever.calibration(HashingEmbeddingClient.MODEL, null, null))
-                .isEqualTo(new ResumeRetriever.Calibration(3, 0.15));
+                .isEqualTo(new ResumeRetriever.Calibration(3, 0.05));
         assertThat(ResumeRetriever.calibration("text-embedding-v4", null, null))
                 .isEqualTo(new ResumeRetriever.Calibration(2, 0.35));
     }

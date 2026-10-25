@@ -26,7 +26,11 @@ final class RagEvaluator {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    record Query(String resume, String query, List<String> relevant) {
+    /**
+     * @param hard 难负样本：与简历同一领域，但点名的具体技术简历里没有（例如 ML 简历对 "Hadoop and Hive"）。
+     *             语义向量会觉得它们"挺像"，阈值必须能拒绝这类查询。
+     */
+    record Query(String resume, String query, List<String> relevant, boolean hard) {
         boolean positive() {
             return !relevant.isEmpty();
         }
@@ -69,7 +73,7 @@ final class RagEvaluator {
     record BudgetMetrics(double recall, double contextPrecision, double charsPerQuery) {
     }
 
-    record ThresholdResult(double threshold, double positiveRate, double negativeRate) {
+    record ThresholdResult(double threshold, double positiveRate, double negativeRate, double hardNegativeRate) {
         double youden() {
             return positiveRate + negativeRate - 1;
         }
@@ -92,7 +96,7 @@ final class RagEvaluator {
         for (JsonNode node : read("/rag-eval/queries.json")) {
             List<String> relevant = new ArrayList<>();
             node.path("relevant").forEach(key -> relevant.add(key.asText()));
-            queries.add(new Query(node.path("resume").asText(), node.path("query").asText(), relevant));
+            queries.add(new Query(node.path("resume").asText(), node.path("query").asText(), relevant, node.path("hard").asBoolean(false)));
         }
         ResumeChunker chunker = new ResumeChunker();
         Map<String, CanonicalResume> resumes = new LinkedHashMap<>();
@@ -190,7 +194,7 @@ final class RagEvaluator {
         return new Metrics(recall / count, precision / count, reciprocalRank / count, count);
     }
 
-    FilteredMetrics evaluateWithThreshold(ChunkStrategy strategy, EmbeddingClient embeddings, int k, double threshold) {
+    FilteredMetrics evaluateWithThreshold(ChunkStrategy strategy, EmbeddingClient embeddings, int k, double threshold, boolean termCheck) {
         Index index = new Index(strategy, embeddings);
         double recall = 0;
         double precision = 0;
@@ -200,7 +204,12 @@ final class RagEvaluator {
         for (Query query : queries) {
             if (!query.positive()) continue;
             Map<String, SpannedChunk> labels = resumes.get(query.resume()).spansByKey();
-            List<Scored> kept = index.search(query).stream().limit(k).filter(scored -> scored.similarity() >= threshold).toList();
+            // 与生产一致：先按阈值和技术检查过滤，再取前 k 个（评测简历的块数少于生产的候选池，等价于从全部候选里过滤）。
+            List<Scored> kept = index.search(query).stream()
+                    .filter(scored -> scored.similarity() >= threshold)
+                    .filter(scored -> !termCheck || TechnologyTerms.supports(query.query(), scored.chunk().content()))
+                    .limit(k)
+                    .toList();
             Set<String> found = new HashSet<>();
             int relevant = 0;
             for (Scored scored : kept) {
@@ -257,12 +266,15 @@ final class RagEvaluator {
     }
 
     /**
-     * 阈值扫描：正样本需要"最佳结果超过阈值且确实相关"才算正确展示证据；
-     * 负样本需要"最佳结果低于阈值"才算正确判为未覆盖。
+     * 阈值扫描：第一个"超过阈值（termCheck 时还要通过 {@link TechnologyTerms#supports}）"的片段就是展示给用户的证据。
+     * 正样本需要这个片段确实相关才算正确展示证据；负样本需要一个片段都不通过才算正确判为未覆盖。
+     *
+     * @param termCheck 是否模拟生产中的"点名的技术必须出现在证据里"检查
      */
-    List<ThresholdResult> sweepThresholds(ChunkStrategy strategy, EmbeddingClient embeddings, double from, double to, double step) {
+    List<ThresholdResult> sweepThresholds(ChunkStrategy strategy, EmbeddingClient embeddings, double from, double to, double step,
+                                          boolean termCheck) {
         Index index = new Index(strategy, embeddings);
-        List<QueryOutcome> outcomes = queries.stream().map(query -> outcome(index, query)).toList();
+        List<QueryOutcome> outcomes = queries.stream().map(query -> outcome(index, query, termCheck)).toList();
         List<ThresholdResult> results = new ArrayList<>();
         for (double threshold = from; threshold <= to + 1e-9; threshold += step) {
             double rounded = Math.round(threshold * 100) / 100.0;
@@ -272,7 +284,11 @@ final class RagEvaluator {
                     .filter(o -> o.query().positive() && o.hit() && o.topSimilarity() >= rounded).count();
             long correctNegatives = outcomes.stream()
                     .filter(o -> !o.query().positive() && o.topSimilarity() < rounded).count();
-            results.add(new ThresholdResult(rounded, (double) correctPositives / positives, (double) correctNegatives / negatives));
+            long hardNegatives = outcomes.stream().filter(o -> o.query().hard()).count();
+            long correctHardNegatives = outcomes.stream()
+                    .filter(o -> o.query().hard() && o.topSimilarity() < rounded).count();
+            results.add(new ThresholdResult(rounded, (double) correctPositives / positives, (double) correctNegatives / negatives,
+                    hardNegatives == 0 ? 1 : (double) correctHardNegatives / hardNegatives));
         }
         return results;
     }
@@ -296,11 +312,14 @@ final class RagEvaluator {
 
     List<QueryOutcome> outcomes(ChunkStrategy strategy, EmbeddingClient embeddings) {
         Index index = new Index(strategy, embeddings);
-        return queries.stream().map(query -> outcome(index, query)).toList();
+        return queries.stream().map(query -> outcome(index, query, false)).toList();
     }
 
-    private QueryOutcome outcome(Index index, Query query) {
-        List<Scored> ranked = index.search(query);
+    /** termCheck 时 top-1 指第一个通过技术检查的片段；一个都不通过时相似度记为 0（任何阈值下都是未覆盖）。 */
+    private QueryOutcome outcome(Index index, Query query, boolean termCheck) {
+        List<Scored> ranked = index.search(query).stream()
+                .filter(scored -> !termCheck || TechnologyTerms.supports(query.query(), scored.chunk().content()))
+                .toList();
         Map<String, SpannedChunk> labels = resumes.get(query.resume()).spansByKey();
         boolean hit = !ranked.isEmpty() && isRelevant(ranked.get(0).chunk(), query, labels);
         List<String> topKeys = ranked.stream().limit(3).map(scored -> scored.chunk().key()).toList();

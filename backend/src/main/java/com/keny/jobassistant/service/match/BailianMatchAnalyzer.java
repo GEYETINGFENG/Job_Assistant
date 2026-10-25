@@ -60,7 +60,7 @@ public class BailianMatchAnalyzer implements MatchAnalyzer {
                                 LlmRateLimiter rateLimiter,
                                 MeterRegistry meterRegistry,
                                 @Value("${app.match.ai.model:${app.resume.ai.model:qwen3.7-flash-2026-07-15}}") String model,
-                                @Value("${app.match.ai.prompt-version:match-v2}") String promptVersion,
+                                @Value("${app.match.ai.prompt-version:match-v3}") String promptVersion,
                                 @Value("${app.match.ai.max-output-tokens:2000}") int maxOutputTokens) {
         this.bailianRestClient = bailianRestClient;
         this.objectMapper = objectMapper;

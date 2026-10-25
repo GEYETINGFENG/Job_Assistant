@@ -266,7 +266,7 @@ When AI is disabled (`MATCH_AI_ENABLED` or `RESUME_AI_ENABLED` false), `KeywordM
 
 ## 7. RAG Retrieval Layer (Lesson 7)
 
-Before Lesson 7 the matcher put the **whole resume JSON** into the prompt. Now the job description is split into requirements (`RequirementExtractor`, at most 15). For each requirement the matcher searches the resume for evidence, so the result can say *where* the resume supports a requirement, or that nothing does. Every number below comes from `RagEvaluationTest`. The full report is in [`docs/rag-evaluation.md`](docs/rag-evaluation.md), built from 4 fictional resumes and 34 labelled queries (28 with a relevant section, 6 with none).
+Before Lesson 7 the matcher put the **whole resume JSON** into the prompt. Now the job description is split into requirements (`RequirementExtractor`, at most 15). For each requirement the matcher searches the resume for evidence, so the result can say *where* the resume supports a requirement, or that nothing does. Every number below comes from `RagEvaluationTest`. The full report is in [`docs/rag-evaluation.md`](docs/rag-evaluation.md), built from 4 fictional resumes and 49 labelled queries: 28 with a relevant section and 21 with none. Of those 21, 15 are **hard negatives**: requirements from the same field as the resume that name a technology the resume never mentions, such as "Hadoop and Hive" against the ML resume.
 
 ```text
 MatchWorker ─ ensureIndexed(version) ─ chunk ─ cache lookup ─ embed misses ─ resume_chunk (V19)
@@ -288,27 +288,39 @@ Comparing strategies at the same k is misleading. A resume cut into 800-characte
 
 Structured chunks also keep one experience entry together with its company and dates, so the evidence shown to the user reads as a single statement.
 
-### Top-k and threshold: calibrated per embedding model
+### Evidence filter: threshold plus a named-technology check
 
-Vector search always returns k results, even when nothing in the resume is relevant. Without a threshold the model is handed unrelated text and encouraged to cite it. Production therefore takes the top k chunks and then drops those below the similarity threshold.
+Vector search always returns k results, even when nothing in the resume is relevant. Without a filter the model is handed unrelated text and encouraged to cite it. Production fetches a small candidate pool (12 chunks, which is usually the whole resume version), keeps chunks that pass **both** checks below, and returns the first k.
 
-Similarity scores from the two embedding models live on completely different scales, so neither number can be shared:
+**1. Similarity threshold, calibrated per model.** The two embedding models score on completely different scales, so neither number can be shared:
 
-| Top-1 similarity | Relevant top-1 (min / mean / max) | Queries with no relevant section (min / mean / max) |
-|---|---|---|
-| `local-hash-v1` | 0.03 / 0.17 / 0.46 | 0.00 / 0.05 / 0.11 |
-| `text-embedding-v4` | 0.41 / 0.55 / 0.72 | 0.18 / 0.27 / 0.32 |
+| Top-1 similarity (min / mean / max) | Relevant | Unrelated negatives | Hard negatives |
+|---|---|---|---|
+| `local-hash-v1` | 0.03 / 0.17 / 0.46 | 0.00 / 0.05 / 0.11 | 0.00 / 0.04 / 0.18 |
+| `text-embedding-v4` | 0.41 / 0.55 / 0.72 | 0.18 / 0.27 / 0.32 | **0.35 / 0.43 / 0.52** |
 
-`ResumeRetriever.CALIBRATIONS` holds one `(k, threshold)` pair per model:
+**2. Named-technology check (`TechnologyTerms.supports`).** A semantic embedding measures topical closeness, not whether the resume actually shows the skill. The first version used the threshold alone (0.35). In the browser it marked "Docker and Kubernetes on AWS" (0.37) and "Spark" (0.38) as covered for a resume that mentions neither, while the LLM, given the same resume, correctly listed both as missing. The hard negatives reproduce this: their scores overlap the relevant range, and the best threshold alone (0.45) still accepts a third of them while losing 7 points of correct evidence. So when a requirement names specific technologies, a chunk only counts as evidence if it mentions at least one of them.
+- "Kafka or RabbitMQ" means either one is enough.
+- Aliases count: Kubernetes/K8s, PostgreSQL/Postgres, GCP/Google Cloud.
+- A specific database implies SQL ("Tuned PostgreSQL queries" proves "SQL queries"), but not the other way round.
+- Terms use longest match, so "React Native" does not accept a resume that only knows React.
+- Concepts such as "microservices" or "machine learning" are left to similarity, because resumes phrase them in many ways ("split the monolith into twelve services").
 
-- **`local-hash-v1`: k = 3, threshold 0.15.**
-  - Recall@k goes from 55.4% at k = 1 to 67.9% at k = 2 and 89.3% at k = 3. Going to 5 gains 7 more points but drops precision from 31% to 20%.
-  - 0.15 has the best Youden J (0.32). It rejects all 6 queries with no relevant section but keeps correct evidence for only 32% of the positive queries, because the two ranges above overlap.
+| `text-embedding-v4`, top-1 evidence | Threshold | Correct evidence | Negatives rejected | Hard negatives rejected | Youden J |
+|---|---|---|---|---|---|
+| Threshold only | 0.45 | 89.3% | 76.2% | 66.7% | 0.65 |
+| Threshold + technology check | 0.35 | **96.4%** | **100%** | **100%** | **0.96** |
+
+`ResumeRetriever.CALIBRATIONS` holds one `(k, threshold)` pair per model, chosen with the technology check on, as in production:
+
 - **`text-embedding-v4`: k = 2, threshold 0.35.**
-  - The ranges do not overlap: the highest negative scores 0.32 and the lowest relevant top-1 scores 0.41. Any threshold from 0.35 to 0.40 separates them perfectly (Youden J 0.96).
-  - 0.35 is the lower end of that plateau. It keeps more evidence, and the 6 negatives are a small sample, so the safety margin above them is only 0.03.
-  - After the threshold, recall is 94.6% at k = 1 and 98.2% at k = 2. k = 3 or 5 adds no recall, only lower-precision chunks: precision of the kept chunks falls from 62.5% to 56.0% and 53.3%. So k = 2 for this model.
-- **Fail fast for uncalibrated models.** Starting with an embedding model that has no calibration fails at startup, unless both `RAG_TOP_K` and `RAG_SIMILARITY_THRESHOLD` are set. Silently reusing another model's numbers would either show no evidence at all or accept everything. `RagEvaluationTest` also asserts that each calibrated threshold is still the best one on the evaluation set, so a dataset or embedding change that moves the optimum fails the build.
+  - Any threshold from 0.35 to 0.40 scores the same. 0.35 sits best between the highest unrelated negative (0.32) and the lowest relevant top-1 (0.41).
+  - After both filters, recall is 94.6% at k = 1 and 98.2% at k = 2. k = 3 or 5 adds no recall, only lower-precision chunks (67.9% → 63.1% → 61.7%).
+- **`local-hash-v1`: k = 3, threshold 0.05.**
+  - Recall@k is 55.4% at k = 1, 67.9% at k = 2 and 89.3% at k = 3.
+  - With the technology check doing the rejecting, the best threshold drops to 0.05 (Youden J 0.40). It keeps correct evidence for 50% of positives and rejects 90.5% of negatives, including every hard negative. Lexical scores of relevant and unrelated chunks overlap heavily, which is the hash model's real limit.
+- **Fail fast for uncalibrated models.** Starting with an embedding model that has no calibration fails at startup, unless both `RAG_TOP_K` and `RAG_SIMILARITY_THRESHOLD` are set. `RagEvaluationTest` asserts that each calibrated threshold still has the best Youden J, so a dataset or embedding change that moves the optimum fails the build.
+- **Limits.** Only 49 queries, and the technology vocabulary is a fixed list: a requirement naming a tool outside the list falls back to similarity alone. Both should grow with real job descriptions.
 
 ### Embeddings: pluggable, with a deterministic default
 
@@ -319,7 +331,7 @@ Similarity scores from the two embedding models live on completely different sca
 
 **Stemming was tested and turned off.** It lowered Recall@3 from 89.3% to 82.1%. Stemming collapses generic words such as "application", "model" and "deploy" into the same features, and those words appear in almost every chunk, so the distinctive terms lose weight. (Building the stemmer also caught a bug where "databases" and "database" stemmed to different forms.)
 
-**Hash vs DashScope** (structured chunks, same dataset, run with `RAG_EVAL_PROVIDER=dashscope`, 38 embedding requests):
+**Hash vs DashScope** (structured chunks, same dataset, run with `RAG_EVAL_PROVIDER=dashscope`, 53 embedding requests):
 
 | Embedding | Recall@1 | Recall@3 | MRR |
 |---|---|---|---|
@@ -346,4 +358,5 @@ The default stays `hash`, so tests and local development need no API key and cos
 
 - Each requirement becomes a `RequirementEvidence { requirement, covered, evidence[] }`. The UI's **Requirement coverage** list shows ✓/✗, the best excerpt, its section and its similarity.
 - The LLM prompt now sends the skills list plus deduplicated evidence excerpts instead of the whole resume. It falls back to the whole resume when retrieval finds nothing. Coverage comes from retrieval, not from the model, so the model cannot claim evidence that does not exist.
-- The output shape changed, so `prompt_version` was bumped to `keyword-v2` / `match-v2`. Earlier results stay stored but are not reused for new requests.
+- The output shape changed, so `prompt_version` was bumped to `keyword-v2` / `match-v2`, and again to `keyword-v3` / `match-v3` when the technology check changed which chunks count as evidence. Earlier results stay stored but are not reused for new requests.
+- `RequirementExtractor` skips company introductions ("About us", "Benefits", "We are hiring…") so they do not show up as uncovered requirements, and splits Chinese job descriptions on 。；and "1、" numbering.
