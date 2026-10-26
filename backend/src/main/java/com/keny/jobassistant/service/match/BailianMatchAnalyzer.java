@@ -30,7 +30,7 @@ import java.util.Set;
 /**
  * 调用阿里云百炼分析简历与 JD 的匹配度。
  *
- * 第 8 课的四个战场：
+ * LLM 生成层的四个关注点：
  * 1. 结构化输出：JSON Mode 之外再做业务校验（MatchAnalysisValidator），并检查"匹配技能"确实出现在简历里
  * 2. Prompt 注入：简历和 JD 都是不可信数据，分别用标签隔离；模型只负责"文本 -> JSON"，不能触发任何操作
  * 3. 成本：读取 usage 记录 token 用量并上报指标，按用户归因由 match_record 完成
