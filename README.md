@@ -127,7 +127,7 @@ Browser preflight `OPTIONS` requests are permitted without authentication. Cross
 
 - **Access tokens cannot be revoked early.** A JWT stays valid until it expires (15 minutes). Refresh tokens *can* be revoked: signing out revokes the session family, reuse detection revokes it automatically, and deleting a user revokes all of that user's sessions.
 - **Role changes are delayed.** Roles are read from the access token, so removing admin rights takes effect within 15 minutes, when the next token is issued.
-- **The refresh grace window is per instance.** Two near-simultaneous refreshes of the same token that land on different instances can be treated as token reuse and sign the user out.
+- **The refresh grace window depends on Redis.** It is shared by all instances, but while Redis is unavailable two near-simultaneous refreshes of the same token are treated as reuse and sign the user out.
 - **No password change or account disable yet.** When added, they must revoke all of the user's refresh tokens, as account deletion already does.
 - **Browser uploads need S3 CORS.** The bucket must allow `PUT` from the frontend origin, otherwise the browser cannot upload to the presigned URL.
 - **Retrieval limits.** Evidence for a named technology requires that technology to appear in the resume text, using a fixed technology vocabulary. The evaluation set has 49 labelled queries, so thresholds should be re-checked as real job descriptions accumulate.

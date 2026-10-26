@@ -454,10 +454,13 @@ Each refresh **rotates** the token: the old refresh token is revoked and a new o
 | Cause | Mitigation |
 |---|---|
 | Several requests in one tab get 401 at once and each refreshes | Frontend single-flight refresh (section 5): one refresh, everyone else awaits it. |
-| Two tabs refresh at the same moment | Backend grace window: a second refresh of the same token within **5 seconds** gets the *same* new pair instead of triggering revocation. The token row is locked (`SELECT … FOR UPDATE`) and the cache is checked again after the lock, so the slower request sees the first one's result. |
+| Two tabs refresh at the same moment | Backend grace window: a second refresh of the same token within **5 seconds** gets the *same* new pair instead of triggering revocation. The token row is locked (`SELECT … FOR UPDATE`) and the cache is checked again after the lock, so the slower request sees the first one's result, even when it is served by another instance. |
 | The response of a successful refresh is lost (network drop) and the client retries | Covered by the same 5-second window. A retry after more than 5 seconds still signs the user out, which is the deliberate trade-off. |
 
-**Limitation:** the grace-window results live in each instance's memory. With several instances, two near-simultaneous refreshes that land on different instances still look like reuse. Moving that small map to Redis with a 5-second TTL would close the gap. The frontend single-flight lock makes this rare in practice.
+**The grace window is shared by all instances.** The result of a refresh is stored in Redis under the old token's hash (`jobassistant:auth:refresh-grace:{hash}`) and expires after 5 seconds. An earlier version kept it in each instance's memory. With several instances, a second refresh that landed on another instance could not see the first one's result, looked like reuse, and signed the user out. `RefreshTokenConcurrencyIntegrationTest` reproduces this with two service instances sharing one database and one Redis, and fails against the in-memory version.
+
+- **Revocation needs no cache cleanup.** On a cache hit, the server checks that the *new* refresh token in the cached result is still active. Signing out, reuse detection and user deletion all revoke the whole family, the new token included, so a cached result can never outlive a revocation. The database stays the single source of truth, and no instance has to tell the others to drop entries. A rolled-back refresh fails the same check, because its new token was never committed.
+- **Redis failures fail open.** If Redis cannot be read or written, the grace window simply does not apply: refresh still works, and only a concurrent duplicate falls back to reuse detection, which is the behaviour without a grace window.
 
 ### Roles in the token, and the downgrade delay
 

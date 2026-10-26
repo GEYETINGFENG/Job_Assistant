@@ -1,15 +1,22 @@
 package com.keny.jobassistant;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.keny.jobassistant.common.ErrorCode;
+import com.keny.jobassistant.exception.BusinessException;
+import com.keny.jobassistant.model.vo.TokenRefreshVO;
 import com.keny.jobassistant.model.vo.UserLoginVO;
+import com.keny.jobassistant.service.RefreshTokenService;
 import com.keny.jobassistant.service.UserService;
+import com.keny.jobassistant.service.impl.RefreshTokenServiceImpl;
 import jakarta.annotation.Resource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.config.AutowireCapableBeanFactory;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
@@ -25,12 +32,16 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 /**
  * Refresh Token 并发刷新集成测试。
  * 模拟同一个用户打开两个浏览器标签页，
  * 两个标签页同时使用同一个 Refresh Token 发起刷新请求。
+ *
+ * 多实例部分：从容器里再创建一个 RefreshTokenServiceImpl，模拟部署了两个后端实例——
+ * 两者各有自己的内存，但共享同一个 PostgreSQL 和 Redis。宽限缓存放在实例内存里时，这些用例会失败。
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -53,6 +64,16 @@ class RefreshTokenConcurrencyIntegrationTest {
     //用于直接检查测试数据库中的 Refresh Token 状态
     @Resource
     private JdbcTemplate jdbcTemplate;
+
+    // 容器里的 RefreshTokenService，作为"实例 A"
+    @Resource
+    private RefreshTokenService instanceA;
+
+    @Resource
+    private AutowireCapableBeanFactory beanFactory;
+
+    @Resource
+    private StringRedisTemplate redis;
 
     // 当前测试创建的用户 ID,测试结束后根据该 ID 清理数据
     private Long createdUserId;
@@ -180,6 +201,105 @@ class RefreshTokenConcurrencyIntegrationTest {
         }
     }
 
+    /** 两个实例同时刷新同一个 Token：都成功、拿到同一组新 Token，Token Family 不被误杀。 */
+    @Test
+    void concurrentRefreshOnTwoInstancesShouldNotRevokeTokenFamily() throws Exception {
+        String originalRefreshToken = registerAndLogin();
+        RefreshTokenService instanceB = secondInstance();
+
+        ExecutorService executorService = Executors.newFixedThreadPool(2);
+        CountDownLatch readyLatch = new CountDownLatch(2);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        try {
+            Future<TokenRefreshVO> first = executorService.submit(() -> {
+                readyLatch.countDown();
+                startLatch.await(5, TimeUnit.SECONDS);
+                return instanceA.refreshToken(originalRefreshToken);
+            });
+            Future<TokenRefreshVO> second = executorService.submit(() -> {
+                readyLatch.countDown();
+                startLatch.await(5, TimeUnit.SECONDS);
+                return instanceB.refreshToken(originalRefreshToken);
+            });
+            assertThat(readyLatch.await(5, TimeUnit.SECONDS)).isTrue();
+            startLatch.countDown();
+
+            TokenRefreshVO firstResult = first.get(10, TimeUnit.SECONDS);
+            TokenRefreshVO secondResult = second.get(10, TimeUnit.SECONDS);
+
+            assertThat(secondResult.getRefreshToken()).isEqualTo(firstResult.getRefreshToken());
+            assertThat(secondResult.getAccessToken()).isEqualTo(firstResult.getAccessToken());
+            assertThat(activeTokenCount()).isEqualTo(1);
+        } finally {
+            executorService.shutdownNow();
+        }
+    }
+
+    /** 刷新响应丢失后重试，重试落到另一个实例：5 秒内拿到同一组 Token，而不是被当成复用踢下线。 */
+    @Test
+    void retryOnAnotherInstanceWithinGraceWindowShouldReturnSamePair() {
+        String originalRefreshToken = registerAndLogin();
+
+        TokenRefreshVO first = instanceA.refreshToken(originalRefreshToken);
+        TokenRefreshVO retried = secondInstance().refreshToken(originalRefreshToken);
+
+        assertThat(retried.getRefreshToken()).isEqualTo(first.getRefreshToken());
+        assertThat(activeTokenCount()).isEqualTo(1);
+        // 宽限缓存由 Redis 在 5 秒后自动删除。
+        assertThat(redis.getExpire(graceKeys().get(0))).isBetween(1L, 5L);
+    }
+
+    /** 退出登录后，宽限窗口内用旧 Token 在另一个实例上重试也不能拿回新 Token：命中缓存时会校验新 Token 已被撤销。 */
+    @Test
+    void graceResultShouldNotSurviveLogout() {
+        String originalRefreshToken = registerAndLogin();
+        TokenRefreshVO refreshed = instanceA.refreshToken(originalRefreshToken);
+        instanceA.revokeTokenFamily(refreshed.getRefreshToken());
+
+        assertThatThrownBy(() -> secondInstance().refreshToken(originalRefreshToken))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo(ErrorCode.NOT_LOGIN.getCode()));
+        assertThat(activeTokenCount()).isZero();
+    }
+
+    /** 宽限窗口过期后再用旧 Token：仍然是复用，整个 Token Family 被撤销。 */
+    @Test
+    void reuseAfterGraceWindowShouldStillRevokeTheFamily() {
+        String originalRefreshToken = registerAndLogin();
+        instanceA.refreshToken(originalRefreshToken);
+        // 模拟 5 秒过去，缓存已由 Redis 过期删除。
+        graceKeys().forEach(redis::delete);
+
+        assertThatThrownBy(() -> secondInstance().refreshToken(originalRefreshToken))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        exception -> assertThat(exception.getCode()).isEqualTo(ErrorCode.NOT_LOGIN.getCode()));
+        assertThat(activeTokenCount()).isZero();
+    }
+
+    /** 注册并登录一个新用户，返回登录得到的 Refresh Token。 */
+    private String registerAndLogin() {
+        String userAccount = "instance" + UUID.randomUUID().toString().replace("-", "");
+        String password = "TestPassword123";
+        createdUserId = userService.userRegister(userAccount, password, password);
+        UserLoginVO loginResult = userService.userLogin(userAccount, password);
+        return loginResult.getRefreshToken();
+    }
+
+    /** 另一个"后端实例"：独立的 Bean（经过事务代理），和实例 A 共享数据库与 Redis。 */
+    private RefreshTokenService secondInstance() {
+        return beanFactory.createBean(RefreshTokenServiceImpl.class);
+    }
+
+    private long activeTokenCount() {
+        Long count = jdbcTemplate.queryForObject(
+                "SELECT count(*) FROM refresh_tokens WHERE user_id = ? AND revoked_at IS NULL", Long.class, createdUserId);
+        return count == null ? 0 : count;
+    }
+
+    private List<String> graceKeys() {
+        return List.copyOf(redis.keys(RefreshTokenServiceImpl.GRACE_KEY_PREFIX + "*"));
+    }
+
     //调用 Refresh Token 刷新接口
     private MvcResult performRefreshRequest(String refreshToken) throws Exception {
         byte[] requestBody = objectMapper.writeValueAsBytes(
@@ -223,5 +343,7 @@ class RefreshTokenConcurrencyIntegrationTest {
                 createdUserId
         );
         createdUserId = null;
+        // 各用例的宽限缓存互不影响。
+        graceKeys().forEach(redis::delete);
     }
 }

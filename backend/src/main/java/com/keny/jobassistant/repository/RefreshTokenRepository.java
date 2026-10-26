@@ -27,6 +27,12 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long
     Optional<RefreshToken> findByTokenHashForUpdate(@Param("tokenHash") String tokenHash);
 
     /**
+     * 宽限缓存命中时校验：缓存里的新 Refresh Token 仍然有效（没被退出登录、复用检测或删除用户撤销）。
+     * 不加锁、不关联用户，只是一次按唯一索引的存在性查询。
+     */
+    boolean existsByTokenHashAndRevokedAtIsNull(String tokenHash);
+
+    /**
      * 当发现某个 Refresh Token 已经被使用过但再次出现,需要撤销同一个 family 下的所有 Token。
      * revokedAt IS NULL:只更新当前仍然有效的 Token，避免重复修改已经撤销的记录。
      * @return 被撤销的 Refresh Token 数量
