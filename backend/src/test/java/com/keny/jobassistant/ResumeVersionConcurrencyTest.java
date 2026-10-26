@@ -1,5 +1,7 @@
 package com.keny.jobassistant;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.keny.jobassistant.repository.ResumeVersionAtomicRepository;
@@ -51,6 +53,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Tag("integration")
 class ResumeVersionConcurrencyTest {
+
+    private static final Logger log = LoggerFactory.getLogger(ResumeVersionConcurrencyTest.class);
 
     /**
      * 模拟的用户ID。
@@ -277,14 +281,14 @@ class ResumeVersionConcurrencyTest {
                     """, Integer.class, resumeId);
 
             assertEquals(THREAD_COUNT + 1, latestVersionNumber);
-            System.out.println("========================================");
-            System.out.println("Resume concurrency test passed");
-            System.out.println("Temporary PostgreSQL container: " + POSTGRES.getContainerId());
-            System.out.println("Resume ID: " + resumeId);
-            System.out.println("Returned versions: " + returnedVersions);
-            System.out.println("Database versions: " + databaseVersions);
-            System.out.println("Latest version: " + latestVersionNumber);
-            System.out.println("========================================");
+            log.info("========================================");
+            log.info("Resume concurrency test passed");
+            log.info("Temporary PostgreSQL container: " + POSTGRES.getContainerId());
+            log.info("Resume ID: " + resumeId);
+            log.info("Returned versions: " + returnedVersions);
+            log.info("Database versions: " + databaseVersions);
+            log.info("Latest version: " + latestVersionNumber);
+            log.info("========================================");
         } finally {
             /*
              * 如果测试中途异常，

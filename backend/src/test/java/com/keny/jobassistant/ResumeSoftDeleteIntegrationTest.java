@@ -1,5 +1,7 @@
 package com.keny.jobassistant;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.keny.jobassistant.model.entity.Resume;
 import com.keny.jobassistant.repository.ResumeRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -46,6 +48,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Tag("integration")
 class ResumeSoftDeleteIntegrationTest {
+
+    private static final Logger log = LoggerFactory.getLogger(ResumeSoftDeleteIntegrationTest.class);
 
     /**
      * 测试专用 PostgreSQL。
@@ -445,14 +449,14 @@ class ResumeSoftDeleteIntegrationTest {
                 """, Integer.class, applicationId);
 
         assertEquals(Resume.DELETED, historicalResumeDeleteStatus);
-        System.out.println("========================================");
-        System.out.println("Resume soft delete test passed");
-        System.out.println("Resume id: " + resumeId);
-        System.out.println("Resume is_delete: " + isDelete);
-        System.out.println("ResumeVersion id: " + resumeVersionId);
-        System.out.println("Application id: " + applicationId);
-        System.out.println("Application still references ResumeVersion: " + referencedResumeVersionId);
-        System.out.println("========================================");
+        log.info("========================================");
+        log.info("Resume soft delete test passed");
+        log.info("Resume id: " + resumeId);
+        log.info("Resume is_delete: " + isDelete);
+        log.info("ResumeVersion id: " + resumeVersionId);
+        log.info("Application id: " + applicationId);
+        log.info("Application still references ResumeVersion: " + referencedResumeVersionId);
+        log.info("========================================");
     }
 
     /**

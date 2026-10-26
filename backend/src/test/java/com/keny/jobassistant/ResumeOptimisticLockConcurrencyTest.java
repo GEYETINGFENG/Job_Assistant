@@ -1,5 +1,7 @@
 package com.keny.jobassistant;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.keny.jobassistant.model.entity.Resume;
 import com.keny.jobassistant.repository.ResumeRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,6 +44,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 @Tag("integration")
 class ResumeOptimisticLockConcurrencyTest {
+
+    private static final Logger log = LoggerFactory.getLogger(ResumeOptimisticLockConcurrencyTest.class);
 
     @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -165,12 +169,12 @@ class ResumeOptimisticLockConcurrencyTest {
                     "Resume Updated By Thread A".equals(resumeName)
                             || "Resume Updated By Thread B".equals(resumeName)
             );
-            System.out.println("========================================");
-            System.out.println("Optimistic lock concurrency test passed");
-            System.out.println("Results: " + results);
-            System.out.println("Final resume name: " + resumeName);
-            System.out.println("Final lock version: " + lockVersion);
-            System.out.println("========================================");
+            log.info("========================================");
+            log.info("Optimistic lock concurrency test passed");
+            log.info("Results: " + results);
+            log.info("Final resume name: " + resumeName);
+            log.info("Final lock version: " + lockVersion);
+            log.info("========================================");
         } finally {
             startLatch.countDown();
             executorService.shutdownNow();

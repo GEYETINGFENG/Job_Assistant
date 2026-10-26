@@ -164,7 +164,10 @@ class ResumeParseCacheIntegrationTest {
         try {
             var tasks = new ArrayList<Callable<Void>>();
             for (int i = 0; i < 100; i++) {
-                tasks.add(() -> { cache.find("jobassistant:resume:parse:absent:test-model:v1"); return null; });
+                tasks.add(() -> {
+                    cache.find("jobassistant:resume:parse:absent:test-model:v1");
+                    return null;
+                });
             }
             for (Future<Void> future : executor.invokeAll(tasks)) future.get();
         } finally {

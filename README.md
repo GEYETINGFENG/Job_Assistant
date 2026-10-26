@@ -51,7 +51,8 @@ An AI-powered job assistant system built with **Spring Boot** and **LLM technolo
 
 ### Engineering
 - Testing: JUnit 5, Mockito, Testcontainers (PostgreSQL / Redis)
-- CI: GitHub Actions (backend unit tests, then integration tests; frontend contract check, type check, Vitest and build)
+- CI: GitHub Actions (backend lint, unit tests, then integration tests; frontend contract check, lint, type check, Vitest and build)
+- Lint: Checkstyle (backend) and ESLint (frontend), limited to rules that catch bugs and dead code
 - Observability: Micrometer + Prometheus metrics, structured JSON logs with request IDs
 - Deployment: Docker (multi-stage, non-root) + docker-compose
 - Load testing: k6 (see [performance report](docs/performance-report.md))
@@ -66,6 +67,15 @@ Tests are split into fast unit tests and slower integration tests (run from `bac
 | `./mvnw verify` | Unit tests, then integration tests tagged `@Tag("integration")` (Testcontainers PostgreSQL / Redis, full Spring context) | Yes |
 
 New tests that need a real database, Redis or the full application context must be annotated with `@Tag("integration")`; everything else should stay a plain unit test.
+
+### Lint
+
+| Command | What it checks |
+|---|---|
+| `./mvnw validate` (in `backend/`) | Checkstyle with [`config/checkstyle/checkstyle.xml`](backend/config/checkstyle/checkstyle.xml). It also runs at the start of `./mvnw test` and `./mvnw verify`, so a violation fails the build. |
+| `npm run lint` (in `frontend/`) | ESLint with [`eslint.config.js`](frontend/eslint.config.js): JavaScript recommended rules, the Vue plugin's essential rules, and typescript-eslint for `.ts` files. |
+
+Both rule sets only catch likely bugs and dead code: unused imports and variables, `==` on strings, `equals` without `hashCode`, switch fall-through, empty `catch` blocks, `System.out` instead of a logger, invalid Vue templates. Pure formatting rules (indentation, line length, attribute wrapping) are deliberately left out. They would rewrite the whole codebase for little benefit and bury real changes in the diff.
 
 GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs the same split on every push to `main` and every pull request: the `Unit tests` job runs first, and `Integration tests` starts only after it passes. Maven dependencies are cached between runs, and no repository secrets are required.
 
