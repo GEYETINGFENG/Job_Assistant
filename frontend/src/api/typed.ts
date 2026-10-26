@@ -41,7 +41,7 @@ type RequestOptions<O> =
   { signal?: AbortSignal };
 
 /** 所有字段都可选时，options 参数本身也可以省略。 */
-type OptionsArgs<O> = {} extends RequestOptions<O> ? [options?: RequestOptions<O>] : [options: RequestOptions<O>];
+type OptionsArgs<O> = Partial<RequestOptions<O>> extends RequestOptions<O> ? [options?: RequestOptions<O>] : [options: RequestOptions<O>];
 
 function fillPath(template: string, params?: Record<string, unknown>): string {
   return template.replace(/\{(\w+)\}/g, (_, name: string) => {

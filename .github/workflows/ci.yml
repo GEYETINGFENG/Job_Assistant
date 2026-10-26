@@ -34,6 +34,11 @@ jobs:
           cache: maven
           cache-dependency-path: backend/pom.xml
 
+      # 代码检查（Checkstyle，规则见 backend/config/checkstyle/checkstyle.xml）。
+      # mvn test 的 validate 阶段也会跑；单独成一步，失败时一眼看出是 lint 还是测试。
+      - name: Lint (Checkstyle)
+        run: ./mvnw -B -ntp validate
+
       # 只跑单元测试（surefire 排除 @Tag("integration")），不需要 Docker。
       - name: Run unit tests
         run: ./mvnw -B -ntp test
@@ -97,6 +102,10 @@ jobs:
         run: |
           npm run gen:api
           git diff --exit-code -- src/api/schema.d.ts
+
+      # 代码检查（ESLint，规则见 frontend/eslint.config.js）。
+      - name: Lint (ESLint)
+        run: npm run lint
 
       # 后端契约变化导致的路径 / 字段不匹配在这里以类型错误的形式暴露。
       - name: Type check
